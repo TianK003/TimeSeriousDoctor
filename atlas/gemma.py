@@ -28,8 +28,9 @@ T = TypeVar("T", bound=BaseModel)
 
 TIMEOUT_MS = 45_000                # HTTP timeout per attempt (a 90 s timeout stalled a live run)
 RETRY_CODES = {429, 500, 503, 504}  # rate limit, internal error, "high demand", server deadline
-BACKOFF_S = (2, 4, 8)              # waits before retries 1..3 of a 429/5xx
-TRANSPORT_RETRIES = 1              # timeouts / dropped connections are retried once (after BACKOFF_S[0])
+SLOW_CODES = {504}                 # server deadline: it tends to repeat for the same prompt, so retried once only
+BACKOFF_S = (2, 4, 8)              # waits before retries 1..3 of a 429/500/503
+TRANSPORT_RETRIES = 1              # timeouts / dropped connections / 504 are retried once (after BACKOFF_S[0])
 MAX_TOTAL_S = 120.0                # wall-time cap for one `generate` call, validation retry included
 _FENCE = re.compile(r"^```[A-Za-z]*\s*(.*?)\s*```$", re.DOTALL)
 
@@ -48,8 +49,10 @@ class _GaveUp(Exception):
 
 
 def _retry_kind(exc: Exception) -> str | None:
-    """`status` (429/5xx: several retries), `transport` (timeout, dropped connection: one retry) or None."""
+    """`status` (429/500/503: several retries), `transport` (timeout, dropped connection, 504: one retry) or None."""
     if isinstance(exc, errors.APIError):
+        if exc.code in SLOW_CODES:
+            return "transport"
         return "status" if exc.code in RETRY_CODES else None
     return "transport" if isinstance(exc, httpx.TransportError) else None
 
@@ -127,8 +130,8 @@ class GemmaClient:
     ) -> str:
         """One logical request, throttled; returns the raw text.
 
-        429/500/503/504 are retried up to len(BACKOFF_S) times with growing waits, timeouts and
-        dropped connections once. Gives up (`_GaveUp`) when the clock passes `deadline`.
+        429/500/503 are retried up to len(BACKOFF_S) times with growing waits; timeouts, dropped
+        connections and 504 (server deadline) once. Gives up (`_GaveUp`) when the clock passes `deadline`.
         """
         client = self._get_client()
         contents: list = [user]

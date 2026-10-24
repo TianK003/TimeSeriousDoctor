@@ -132,6 +132,19 @@ def test_evaluation_headline(mock_runs, monkeypatch):
     assert m["Purity"][0] == "80%" and m["ARI"][0] == "0.70"
 
 
+def test_evaluation_shows_failed_call_counts_only_when_there_are_some(mock_runs, tmp_path, monkeypatch):
+    assert not [c for c in run_app(mock_runs, monkeypatch).caption if "failed" in c.value or "no Gemma report" in c.value]
+
+    run_dir = copy_run(mock_runs, tmp_path)
+    ev = json.loads((run_dir / "eval.json").read_text(encoding="utf-8"))
+    ev["comparison"]["gemma_alone"]["n_failed"] = 3
+    ev["comparison"]["pipeline"]["n_clusters_without_report"] = 1
+    (run_dir / "eval.json").write_text(json.dumps(ev), encoding="utf-8")
+    captions = [c.value for c in run_app(tmp_path, monkeypatch).caption]
+    assert any("3 of 40 Gemma-alone calls failed" in c and "scored as wrong" in c for c in captions)
+    assert any("1 pipeline cluster(s) have no Gemma report" in c for c in captions)
+
+
 def test_evaluation_charts(mock_runs, monkeypatch):
     bars, heat = figures(run_app(mock_runs, monkeypatch))[5:7]
     assert [t["name"] for t in bars["data"]] == ["TimeSeriousDoctor", "Gemma alone"]
@@ -384,6 +397,31 @@ def test_loader_cache_picks_up_files_written_after_first_load(mock_runs, tmp_pat
     assert not at.exception
     assert metrics(at)["TimeSeriousDoctor accuracy"][0] == "80%"
     assert "✔ Expert-confirmed" in markdown_text(at)
+
+
+def test_tsne_is_not_recomputed_by_expert_saves_or_eval_writes(mock_runs, tmp_path, monkeypatch):
+    import atlas.cluster
+
+    run_dir = copy_run(mock_runs, tmp_path)
+    calls = []
+    real = atlas.cluster.project_tsne
+    monkeypatch.setattr(atlas.cluster, "project_tsne", lambda *a, **kw: calls.append(1) or real(*a, **kw))
+
+    at = run_app(tmp_path, monkeypatch, cluster_id=0)
+    assert not at.exception
+    n_first = len(calls)
+    assert n_first >= 1
+
+    at.button(key="expert_save_0").click().run()  # writes expert_feedback.json into the run folder
+    (run_dir / "eval.json").write_text((run_dir / "eval.json").read_text(encoding="utf-8"), encoding="utf-8")
+    at.run()
+    assert not at.exception and (run_dir / "expert_feedback.json").exists()
+    assert len(calls) == n_first  # same windows.parquet / embeddings.npy: cached map is reused
+
+    newer = time.time() + 100
+    os.utime(run_dir / "windows.parquet", (newer, newer))  # the t-SNE inputs changed: recompute
+    at.run()
+    assert len(calls) > n_first
 
 
 def make_runs(tmp_path: Path, mock_runs: Path, ages: dict[str, float]) -> Path:
