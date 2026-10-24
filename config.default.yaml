@@ -1,0 +1,33 @@
+# TimeSeriousDoctor default configuration. Every key is optional; missing keys use these values.
+season: 7            # seasonal period in steps (7 = weekly on daily data)
+window_len: 28       # forecast-window length in steps
+stride: 14           # step between window starts
+min_history: 56      # minimum history rows per series
+max_lag: 7           # max lag searched for the delayed-response feature
+embedder: features   # features | moment | both
+n_baseline: 40       # series sampled for the Gemma-only baseline
+cache_dir: cache
+runs_dir: runs
+
+gate:
+  mode: threshold    # threshold | quantile
+  t_abs: 1.0         # flag windows whose scaled absolute-error score exceeds this
+  t_bias: 0.75       # ... or whose scaled bias score exceeds this
+  q: 0.25            # quantile mode: share of windows to keep
+
+cluster:
+  min_cluster_size: 20
+  max_clusters: 8
+  seed: 0
+
+moment:
+  model_size: small
+  batch_size: 64
+  device: cpu
+
+gemma:
+  model: gemma-4-26b-a4b-it
+  fallback_model: gemma-4-31b-it
+  rpm: 10            # max requests per minute
+  temperature: 0.2
+  cache_dir: cache/gemma
