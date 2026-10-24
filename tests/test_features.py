@@ -40,7 +40,8 @@ def _run(a: np.ndarray, p: np.ndarray, a_ctx: np.ndarray) -> pd.DataFrame:
 
 def test_columns_and_docs() -> None:
     assert FEATURES == ["abs_err", "bias", "best_lag", "lag_gain", "slope_corr",
-                        "peak_excess", "var_ratio", "sign_run", "r_trend", "dir_acc"]
+                        "peak_excess", "var_ratio", "sign_run", "r_trend", "dir_acc",
+                        "r_acf_season", "spike_ratio"]
     assert set(FEATURE_DOCS) == set(FEATURES)
     sig = _signal(10)
     a, a_ctx = _views(sig)
@@ -98,6 +99,52 @@ def test_missed_peaks_have_peak_excess() -> None:
     assert f["peak_excess"].median() > 2
 
 
+def test_weekly_oscillating_residual_has_high_seasonal_acf() -> None:
+    rng = np.random.default_rng(21)
+    sig = _signal(N, seed=8)
+    a, a_ctx = _views(sig)
+    phase = rng.uniform(0, 2 * np.pi, (N, 1))
+    weekly = 3.0 * np.sin(2 * np.pi * np.arange(L)[None, :] / 7 + phase)
+    f = compute_features(weekly + rng.normal(0, 0.3, a.shape), a, a - weekly, a_ctx, max_lag=ML)
+    assert (f["r_acf_season"] > 0.7).mean() > 0.95
+    assert f["r_acf_season"].max() <= 1.0
+    # a different season length is picked up through the `season` argument
+    f14 = compute_features(weekly, a, a - weekly, a_ctx, max_lag=ML, season=14)
+    assert (f14["r_acf_season"] > 0.7).all()  # period 7 repeats at lag 14 too
+    f5 = compute_features(weekly, a, a - weekly, a_ctx, max_lag=ML, season=5)
+    assert (f5["r_acf_season"] < 0.0).all()
+
+
+def test_sparse_spikes_have_low_seasonal_acf_and_high_spike_ratio() -> None:
+    rng = np.random.default_rng(22)
+    sig = _signal(N, seed=9)
+    a, a_ctx = _views(sig)
+    r = rng.normal(0, 0.3, a.shape)
+    for i in range(N):
+        r[i, rng.choice(L, 3, replace=False)] += 6.0  # three sparse spikes
+    f = compute_features(r, a, a - r, a_ctx, max_lag=ML)
+    assert f["spike_ratio"].median() > 4.0
+    assert f["r_acf_season"].median() < 0.4
+
+    smooth = 3.0 * np.sin(2 * np.pi * np.arange(L)[None, :] / 7 + rng.uniform(0, 6.28, (N, 1)))
+    fs = compute_features(smooth, a, a - smooth, a_ctx, max_lag=ML)
+    assert fs["spike_ratio"].max() < 2.0  # sinusoid: max/mean = pi/2
+    assert f["spike_ratio"].median() > 2 * fs["spike_ratio"].median()
+
+
+def test_spike_ratio_and_acf_exact_values() -> None:
+    a = np.zeros((2, L))
+    a_ctx = np.zeros((2, L + 2 * ML))
+    r = np.zeros((2, L))
+    r[0, 10] = 4.0                 # one spike: max 4, mean 4/28
+    r[1] = np.tile(np.arange(7.0), 4)  # period-7 sawtooth: acf at lag 7 is exactly 1
+    f = compute_features(r, a, a - r, a_ctx, max_lag=ML)
+    np.testing.assert_allclose(f["spike_ratio"].iloc[0], 4.0 / (4.0 / L + 1e-6))
+    np.testing.assert_allclose(f["spike_ratio"].iloc[1], 6.0 / (3.0 + 1e-6))
+    np.testing.assert_allclose(f["r_acf_season"].iloc[1], 1.0)
+    assert f["r_acf_season"].iloc[0] < 0.0  # lone spike: negative-ish, never high
+
+
 def test_healthy_noise_has_small_error_and_no_signature() -> None:
     sig = _signal(N, seed=5)
     rng = np.random.default_rng(15)
@@ -133,6 +180,10 @@ def test_nan_context_and_missing_values_stay_finite() -> None:
     # entirely NaN predictions give neutral values rather than NaN
     f3 = compute_features(np.full_like(r, np.nan), a, np.full_like(p, np.nan), a_ctx, max_lag=ML)
     assert np.isfinite(f3.to_numpy()).all()
+    assert (f3["r_acf_season"] == 0).all() and (f3["spike_ratio"] == 0).all()
+    # a window shorter than the season gives a neutral acf
+    f4 = compute_features(r[:, :5], a[:, :5], p[:, :5], a_ctx[:, :5 + 2 * ML], max_lag=ML)
+    assert (f4["r_acf_season"] == 0).all() and np.isfinite(f4.to_numpy()).all()
 
 
 def test_constant_series_gives_neutral_values() -> None:
@@ -147,6 +198,7 @@ def test_constant_series_gives_neutral_values() -> None:
     assert (f["slope_corr"] == 0).all()
     assert (f["var_ratio"] == 1.0).all()
     assert (f["sign_run"] == 0).all()  # all-zero residual: zeros break runs
+    assert (f["r_acf_season"] == 0).all() and (f["spike_ratio"] == 0).all()
 
 
 def test_exact_values_on_tiny_window() -> None:

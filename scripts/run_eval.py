@@ -67,7 +67,10 @@ def _baseline(
     })
     n_failed = sum(a is None for a in answers.values())
     if n_failed:
-        print(f"baseline: {n_failed} of {len(sample)} Gemma calls failed (counted as wrong)")
+        print(
+            f"WARNING: baseline: {n_failed} of {len(sample)} Gemma-alone calls failed and are scored as wrong. "
+            "Re-run the same command to retry them (cached successes cost nothing) before quoting the numbers."
+        )
     return sample, pred
 
 
@@ -89,10 +92,19 @@ def main(argv: list[str] | None = None, gemma_client=None) -> list[dict]:
     for run in runs:
         ev = evaluate_run(run)
         if not args.no_baseline:
-            pipeline_calls = sum(1 for c in run.clusters if c.cluster_id >= 0) + 1
+            real = [c for c in run.clusters if c.cluster_id >= 0]
+            pipeline_calls = len(real) + 1
+            n_no_report = sum(c.report is None for c in real)
+            if n_no_report:
+                print(
+                    f"WARNING: {run.name}: {n_no_report} of {len(real)} clusters have no Gemma report "
+                    "(scored as `other`, i.e. wrong). Re-run run_atlas with the same arguments to retry "
+                    "them (cached reports cost nothing)."
+                )
             truth = series_truth(run)
             ev["comparison"] = compare(
-                truth, series_predictions(run), baseline_pred, sample, pipeline_calls, len(truth)
+                truth, series_predictions(run), baseline_pred, sample, pipeline_calls, len(truth),
+                n_clusters_without_report=n_no_report,
             )
         _write_json(run.path / "eval.json", ev)
         print(f"wrote {run.path / 'eval.json'}")

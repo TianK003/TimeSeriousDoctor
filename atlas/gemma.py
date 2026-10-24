@@ -26,9 +26,11 @@ from atlas.schema import AtlasSummary, ClusterInfo, GemmaClusterReport
 
 T = TypeVar("T", bound=BaseModel)
 
-TIMEOUT_MS = 90_000                # 31b calls were seen hanging for ~88 s
+TIMEOUT_MS = 45_000                # HTTP timeout per attempt (a 90 s timeout stalled a live run)
 RETRY_CODES = {429, 500, 503, 504}  # rate limit, internal error, "high demand", server deadline
-BACKOFF_S = (2, 4, 8, 16)
+BACKOFF_S = (2, 4, 8)              # waits before retries 1..3 of a 429/5xx
+TRANSPORT_RETRIES = 1              # timeouts / dropped connections are retried once (after BACKOFF_S[0])
+MAX_TOTAL_S = 120.0                # wall-time cap for one `generate` call, validation retry included
 _FENCE = re.compile(r"^```[A-Za-z]*\s*(.*?)\s*```$", re.DOTALL)
 
 
@@ -41,10 +43,15 @@ def _parse(text: str, schema: type[T]) -> T:
     return schema.model_validate_json(text)
 
 
-def _is_retryable(exc: Exception) -> bool:
+class _GaveUp(Exception):
+    """The per-call wall-time budget ran out; reported as a warning, never raised to the pipeline."""
+
+
+def _retry_kind(exc: Exception) -> str | None:
+    """`status` (429/5xx: several retries), `transport` (timeout, dropped connection: one retry) or None."""
     if isinstance(exc, errors.APIError):
-        return exc.code in RETRY_CODES
-    return isinstance(exc, httpx.TransportError)  # timeouts, dropped connections
+        return "status" if exc.code in RETRY_CODES else None
+    return "transport" if isinstance(exc, httpx.TransportError) else None
 
 
 def _one_line(exc: Exception, limit: int = 200) -> str:
@@ -94,8 +101,9 @@ class GemmaClient:
             self._write_raw(tag, text)
             return result
 
+        deadline = self._clock() + MAX_TOTAL_S
         try:
-            text = self._request(system, user, image, schema, tag)
+            text = self._request(system, user, image, schema, tag, deadline)
             try:
                 result = _parse(text, schema)
             except ValidationError as err:
@@ -103,7 +111,7 @@ class GemmaClient:
                     f"{user}\n\nYour previous reply was not valid ({_one_line(err, 500)}). "
                     "Return only a JSON object that matches the schema."
                 )
-                text = self._request(system, retry_user, image, schema, tag)
+                text = self._request(system, retry_user, image, schema, tag, deadline)
                 result = _parse(text, schema)
         except Exception as exc:  # never raise to the pipeline
             print(f"gemma[{tag}]: no result ({_one_line(exc)})")
@@ -114,8 +122,14 @@ class GemmaClient:
 
     # ------------------------------------------------------------ API call
 
-    def _request(self, system: str, user: str, image: bytes | None, schema: type[T], tag: str) -> str:
-        """One logical request: throttled, retried on 429/500/503/504 and transport errors with backoff; returns the raw text."""
+    def _request(
+        self, system: str, user: str, image: bytes | None, schema: type[T], tag: str, deadline: float
+    ) -> str:
+        """One logical request, throttled; returns the raw text.
+
+        429/500/503/504 are retried up to len(BACKOFF_S) times with growing waits, timeouts and
+        dropped connections once. Gives up (`_GaveUp`) when the clock passes `deadline`.
+        """
         client = self._get_client()
         contents: list = [user]
         if image is not None:
@@ -126,22 +140,33 @@ class GemmaClient:
             response_mime_type="application/json",
             response_schema=schema,
         )
-        for delay in (*BACKOFF_S, None):
+        n_status = n_transport = 0
+        while True:
+            if self._clock() >= deadline:
+                raise _GaveUp(f"gave up after {MAX_TOTAL_S:.0f}s total")
             self._throttle()
             try:
                 resp = client.models.generate_content(
                     model=self.cfg.model, contents=contents, config=config
                 )
             except Exception as exc:
-                if delay is None or not _is_retryable(exc):
+                kind = _retry_kind(exc)
+                if kind == "status" and n_status < len(BACKOFF_S):
+                    delay = BACKOFF_S[n_status]
+                    n_status += 1
+                elif kind == "transport" and n_transport < TRANSPORT_RETRIES:
+                    delay = BACKOFF_S[0]
+                    n_transport += 1
+                else:
                     raise
+                if self._clock() + delay >= deadline:
+                    raise _GaveUp(f"gave up after {MAX_TOTAL_S:.0f}s total (last error: {_one_line(exc, 100)})") from exc
                 print(f"gemma[{tag}]: {_one_line(exc, 100)}; retrying in {delay}s")
                 self._sleep(delay)
                 continue
             text = resp.text or ""
             self._write_raw(tag, text)
             return text
-        raise AssertionError("unreachable")  # the last iteration returns or raises
 
     def _get_client(self):
         if self._client is None:

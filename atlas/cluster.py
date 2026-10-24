@@ -22,13 +22,20 @@ PCA_DIMS = 16
 MAX_NOISE_SHARE = 0.6
 KMEANS_K_RANGE = (3, 8)
 HDBSCAN_RETRIES = 3
+CLIP_SCALED = 5.0       # embed_features winsorizes robust-scaled features to [-5, 5]
+MAX_LARGEST_SHARE = 0.5  # a cluster holding more than this share of the points counts as degenerate
 
 
 def embed_features(windows: pd.DataFrame, features: list[str]) -> np.ndarray:
-    """Feature columns -> RobustScaler -> NaN/inf replaced by 0. float32 [n, len(features)]."""
+    """Feature columns -> RobustScaler -> clipped to [-5, 5] -> NaN/inf replaced by 0. float32 [n, len(features)].
+
+    The clip matters on heavy-tailed features (real retail data): without it a few outliers sit
+    hundreds of IQRs away and dominate every distance, so clustering returns one giant cluster.
+    """
     vals = windows[features].to_numpy(dtype=np.float64)
     vals = np.where(np.isfinite(vals), vals, np.nan)  # RobustScaler rejects inf, tolerates NaN
     scaled = RobustScaler().fit_transform(vals)
+    scaled = np.clip(scaled, -CLIP_SCALED, CLIP_SCALED)
     return np.nan_to_num(scaled, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
 
 
@@ -47,17 +54,28 @@ def _n_clusters(labels: np.ndarray) -> int:
 
 
 def _kmeans_silhouette(Z: np.ndarray, max_clusters: int, seed: int) -> np.ndarray:
+    """KMeans over k in KMEANS_K_RANGE, best silhouette wins.
+
+    Solutions whose largest cluster holds more than MAX_LARGEST_SHARE of the points are skipped
+    (a 98 % cluster scores a high silhouette but says nothing); if every k is skipped, the best
+    silhouette overall is used.
+    """
     n = len(Z)
     hi = min(KMEANS_K_RANGE[1], max_clusters, n - 1)
     lo = min(KMEANS_K_RANGE[0], hi)
-    best_labels, best_score = None, -np.inf
+    best_labels, best_score = None, -np.inf          # best among balanced solutions
+    any_labels, any_score = None, -np.inf            # best overall (fallback)
     for k in range(lo, hi + 1):
         labels = KMeans(n_clusters=k, n_init=10, random_state=seed).fit_predict(Z)
         if len(set(labels.tolist())) < 2:
             continue
         score = silhouette_score(Z, labels, sample_size=min(n, 3000), random_state=seed)
-        if score > best_score:
+        if score > any_score:
+            any_labels, any_score = labels, score
+        if np.bincount(labels).max() / n <= MAX_LARGEST_SHARE and score > best_score:
             best_labels, best_score = labels, score
+    if best_labels is None:
+        best_labels = any_labels
     if best_labels is None:  # degenerate data (e.g. all identical rows)
         best_labels = KMeans(n_clusters=hi, n_init=10, random_state=seed).fit_predict(Z)
     return best_labels
@@ -84,9 +102,13 @@ def cluster_windows(
         labels = HDBSCAN(min_cluster_size=mcs, copy=True).fit_predict(Z)
         k = _n_clusters(labels)
         noise_share = float(np.mean(labels == CLUSTER_NOISE))
-        if k < 2 or noise_share > MAX_NOISE_SHARE:
+        largest_share = float(np.bincount(labels[labels >= 0]).max() / n) if k else 0.0
+        if k < 2 or noise_share > MAX_NOISE_SHARE or largest_share > MAX_LARGEST_SHARE:
             fallback = "silhouette"
-            method = f"kmeans-silhouette (hdbscan gave {k} clusters, {noise_share:.0%} noise)"
+            method = (
+                f"kmeans-silhouette (hdbscan gave {k} clusters, {noise_share:.0%} noise, "
+                f"largest cluster {largest_share:.0%})"
+            )
             break
         if k <= max_clusters:
             method = f"hdbscan (min_cluster_size={mcs})"
