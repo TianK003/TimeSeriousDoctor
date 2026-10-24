@@ -1,6 +1,6 @@
 """Streamlit entry point.
 
-Atlas, Cluster, Series and Evaluation tabs over a precomputed run folder (SPEC.md §7.12).
+Atlas, Latent space, Cluster, Series and Evaluation tabs over a precomputed run folder (SPEC.md §7.12).
 Runs are produced by the CLI (`python scripts/run_atlas.py`, or `python scripts/make_mock_run.py`
 for a fake one); the app only reads them, except the expert review in the Cluster tab, which writes
 `expert_feedback.json` into the run folder. Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
@@ -13,14 +13,18 @@ import os
 import re
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from atlas.plots import atlas_scatter, series_figure
+from atlas.cluster import embed_features, project_tsne
+from atlas.features import FEATURES
+from atlas.plots import atlas_scatter, cluster_name_map, latent_figure, series_figure, window_figure
 from atlas.schema import CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, RunResult, list_runs, load_run
 from atlas.taxonomy import load_taxonomy
+from atlas.ui_theme import apply_theme, plotly_template, theme_toggle
 
 DISCLAIMER = (
     "Automated diagnostics — suggestions to investigate, not guarantees; "
@@ -39,6 +43,12 @@ CARDS_PER_ROW = 3
 EXPERT_FILE = "expert_feedback.json"
 EXPERT_VERDICTS = {"Confirm": "confirmed", "Reject": "rejected", "Rename": "renamed"}  # radio label -> status
 EXPERT_STATUSES = set(EXPERT_VERDICTS.values())
+MOCK_RUN = "mock"
+LATENT_MODES = {  # radio label -> mode
+    "All windows (feature space)": "all",
+    "Anomalous windows (cluster embedding)": "anomalous",
+}
+LATENT_COLOR_LABELS = {"cluster": "Cluster", "true_label": "True label (synthetic data)", "series_id": "Series"}
 PIPELINE_COLOR = "#4c78a8"
 GEMMA_ALONE_COLOR = "#e45756"
 
@@ -54,15 +64,20 @@ def runs_dir() -> Path:
     return Path(os.environ.get("ATLAS_RUNS_DIR", "runs"))
 
 
+def run_stamp(path: Path) -> float:
+    """Newest mtime of any file in the run folder (eval.json, summary.json, expert_feedback.json, ...)."""
+    return max((p.stat().st_mtime for p in Path(path).iterdir() if p.is_file()), default=0.0)
+
+
 @st.cache_data(show_spinner="Loading run ...")
-def cached_load_run(path: str, mtime: float) -> RunResult:
-    """Cache key is the run path (mtime only invalidates when the run is regenerated in place)."""
+def cached_load_run(path: str, stamp: float) -> RunResult:
+    """Cache key is the run path plus the newest file mtime, so files written later show up."""
     return load_run(Path(path))
 
 
 def load_selected_run(path: Path) -> RunResult | None:
     try:
-        return cached_load_run(str(path), (path / "clusters.json").stat().st_mtime)
+        return cached_load_run(str(path), run_stamp(path))
     except Exception as exc:  # missing/corrupt files: message, not a stack trace
         st.error(f"Could not load run '{path.name}': {type(exc).__name__}: {exc}")
         return None
@@ -114,8 +129,13 @@ def expert_badge(expert: dict | None, with_name: bool = False) -> None:
         st.badge(f"✎ Renamed by expert: {md_escape(name)}" if with_name else "✎ Renamed by expert", color="violet")
 
 
+def default_run_name(runs: list[Path]) -> str:
+    """Most recently modified real run; the mock demo run only when it is the only one."""
+    real = [p for p in runs if p.name != MOCK_RUN]
+    return max(real or runs, key=run_stamp).name
+
+
 def sidebar(runs: list[Path]) -> RunResult | None:
-    st.sidebar.title("TimeSeriousDoctor")
     if not runs:
         st.sidebar.warning(f"No runs found in `{runs_dir()}`.")
         st.sidebar.markdown(
@@ -125,7 +145,12 @@ def sidebar(runs: list[Path]) -> RunResult | None:
         )
         return None
     by_name = {p.name: p for p in runs}
-    name = st.sidebar.selectbox("Run", list(by_name))
+    if st.session_state.get("run_name") not in by_name:
+        st.session_state["run_name"] = default_run_name(runs)
+    name = st.sidebar.selectbox(
+        "Run", list(by_name), key="run_name",
+        format_func=lambda n: "mock (demo data)" if n == MOCK_RUN else n,
+    )
     run = load_selected_run(by_name[name])
     if run is None:
         return None
@@ -140,6 +165,11 @@ def sidebar(runs: list[Path]) -> RunResult | None:
     return run
 
 
+def plot(fig: go.Figure, **kwargs):
+    """st.plotly_chart that keeps the figure's own plotly template (theme=None) in light and dark mode."""
+    return st.plotly_chart(fig, width="stretch", theme=None, **kwargs)
+
+
 # ---------------------------------------------------------------------------- Atlas
 
 def _open_cluster(cluster_id: int) -> None:
@@ -147,7 +177,7 @@ def _open_cluster(cluster_id: int) -> None:
     st.session_state["opened_cluster"] = cluster_id
 
 
-def tab_atlas(run: RunResult) -> None:
+def tab_atlas(run: RunResult, tpl: str) -> None:
     wins = run.windows
     if run.summary is not None:
         st.subheader(md_escape(run.summary.headline))
@@ -198,7 +228,7 @@ def tab_atlas(run: RunResult) -> None:
     if {"x2d", "y2d"} <= set(wins.columns) and wins["x2d"].notna().any():
         st.subheader("Atlas map")
         st.caption("Each dot is an anomalous window; windows with a similar failure pattern sit close together.")
-        st.plotly_chart(atlas_scatter(wins), width="stretch")
+        plot(atlas_scatter(wins, template=tpl))
 
 
 # -------------------------------------------------------------------------- Cluster
@@ -215,18 +245,23 @@ def _feature_table(c: ClusterInfo) -> pd.DataFrame:
     return df.round(3)
 
 
-def _model_mix_figure(c: ClusterInfo) -> go.Figure:
+def _model_mix_figure(c: ClusterInfo, tpl: str) -> go.Figure:
     mix = sorted(c.model_card_dist.items(), key=lambda kv: -kv[1])
     fig = go.Figure(go.Bar(x=[k for k, _ in mix], y=[v * 100 for _, v in mix], marker_color="#4c78a8"))
     fig.update_layout(
-        yaxis_title="Share of windows (%)", xaxis_title=None, margin=dict(l=10, r=10, t=10, b=10), height=300
+        yaxis_title="Share of windows (%)", xaxis_title=None, margin=dict(l=10, r=10, t=10, b=10), height=300,
+        template=tpl,
     )
     return fig
 
 
+def _goto_series(series_id: str) -> None:
+    st.session_state["series_id"] = series_id
+    st.session_state["opened_series"] = series_id
+
+
 def _show_series(key: str) -> None:
-    st.session_state["series_id"] = st.session_state[key]
-    st.session_state["opened_series"] = st.session_state[key]
+    _goto_series(st.session_state[key])
 
 
 def _save_expert_review(run_path: Path, c: ClusterInfo) -> None:
@@ -297,7 +332,7 @@ def expert_review(run: RunResult, c: ClusterInfo, saved: dict | None) -> None:
             st.success("Saved. The verdict is shown on the cluster card and in the Cluster tab header.")
 
 
-def tab_cluster(run: RunResult) -> None:
+def tab_cluster(run: RunResult, tpl: str) -> None:
     if not run.clusters:
         st.info("This run has no clusters.")
         return
@@ -361,7 +396,7 @@ def tab_cluster(run: RunResult) -> None:
     with right:
         st.subheader("Model mix")
         if c.model_card_dist:
-            st.plotly_chart(_model_mix_figure(c), width="stretch")
+            plot(_model_mix_figure(c, tpl))
         else:
             st.info("No model information for this cluster.")
 
@@ -382,6 +417,118 @@ def tab_cluster(run: RunResult) -> None:
         opened = st.session_state.get("opened_series")
         if opened is not None:
             st.success(f"Series {opened} selected — open the **Series** tab to see its forecast and windows.")
+
+
+# ------------------------------------------------------------------------ Latent space
+
+def latent_coords(run: RunResult, mode: str) -> np.ndarray | None:
+    """t-SNE coordinates [n_windows, 2] (NaN = not projected), or None if the run lacks the inputs.
+
+    mode "all": every window from its 10 features; "anomalous": the cluster embedding of the gated windows.
+    """
+    w = run.windows
+    if mode == "all":
+        if not set(FEATURES) <= set(w.columns):
+            return None
+        return project_tsne(embed_features(w, FEATURES), keep=w["gated"].to_numpy(dtype=bool))
+    emb = np.asarray(run.embeddings)
+    if emb.ndim != 2 or len(emb) == 0:
+        return None
+    xy = project_tsne(emb)
+    rows = w["emb_row"].to_numpy(dtype=int)
+    ok = (rows >= 0) & (rows < len(xy))
+    out = np.full((len(w), 2), np.nan, dtype=np.float32)
+    out[ok] = xy[rows[ok]]
+    return out
+
+
+@st.cache_data(show_spinner="Computing the t-SNE map (about 15 s for thousands of windows) ...")
+def cached_tsne(_run: RunResult, path: str, mode: str, stamp: float) -> np.ndarray | None:
+    """t-SNE is slow: cached per run folder + mode (+ newest file mtime); `_run` itself is not hashed."""
+    return latent_coords(_run, mode)
+
+
+def _cluster_names(run: RunResult) -> dict[int, str]:
+    """Cluster id -> display name: Gemma's, or the expert's for a renamed cluster."""
+    names = cluster_name_map(run.clusters)
+    for c in run.clusters:
+        if c.cluster_id >= 0 and expert_entry(run, c.cluster_id) is not None:
+            names[c.cluster_id] = run_title(run, c)
+    return names
+
+
+def _selected_window(event, windows: pd.DataFrame) -> str | None:
+    """window_id of the first selected point (its customdata) that exists in this run."""
+    points = ((event or {}).get("selection") or {}).get("points") or []
+    known = set(windows["window_id"])
+    for p in points:
+        cd = p.get("customdata")
+        if isinstance(cd, (list, tuple)):
+            cd = cd[0] if cd else None
+        if isinstance(cd, str) and cd in known:
+            return cd
+    return None
+
+
+def _window_detail(run: RunResult, window_id: str, tpl: str) -> None:
+    row = run.windows[run.windows["window_id"] == window_id].iloc[0]
+    sid, cid = str(row["series_id"]), int(row["cluster"])
+    plot(window_figure(window_id, run, template=tpl))
+    st.button(f"Show {sid} in Series tab", key="latent_show_series", on_click=_goto_series, args=(sid,))
+    if cid == CLUSTER_NOT_GATED:
+        st.markdown("Normal window: it did not pass the anomaly gate.")
+        return
+    try:
+        c = run.cluster(cid)
+    except KeyError:
+        return
+    expert = expert_entry(run, cid)
+    st.markdown(f"**{md_escape(cluster_title(c, expert))}**")
+    failure_badge(c, expert)
+    expert_badge(expert)
+    if c.report is not None:
+        st.markdown(md_escape(c.report.summary))
+    elif cid == CLUSTER_NOISE:
+        st.markdown("Anomalous window that fits no pattern. Review it by hand.")
+    else:
+        st.warning(NO_REPORT)
+    if cid >= 0:
+        st.button("Open this cluster", key="latent_open_cluster", on_click=_open_cluster, args=(cid,))
+
+
+def tab_latent(run: RunResult, tpl: str) -> None:
+    wins = run.windows
+    st.caption(
+        "Each dot is one 28-step window of forecast errors, placed by t-SNE so that windows with a similar "
+        "error pattern sit close together. Click a dot to see that window."
+    )
+    mode_label = st.radio("Show", list(LATENT_MODES), horizontal=True, key="latent_mode")
+    coords = cached_tsne(run, str(run.path), LATENT_MODES[mode_label], run_stamp(run.path))
+    if coords is None:
+        st.info("This run has no stored features or embeddings for this view.")
+        return
+
+    ids, counts = _series_order(run)
+    color_options = ["cluster", *(["true_label"] if "true_label" in wins.columns else []), "series_id"]
+    c1, c2 = st.columns(2)
+    color_by = c1.selectbox("Color by", color_options, key="latent_color", format_func=LATENT_COLOR_LABELS.get)
+    highlight = c2.selectbox(
+        "Highlight a series", [None, *ids], key="latent_highlight",
+        format_func=lambda s: "(none)" if s is None else f"{s} ({counts[s]} anomalous)",
+    )
+    fig = latent_figure(
+        wins, coords, color_by=color_by, cluster_names=_cluster_names(run), highlight_series=highlight, template=tpl
+    )
+
+    left, right = st.columns([3, 2])
+    with left:
+        event = plot(fig, key="latent_plot", on_select="rerun", selection_mode="points")
+    with right:
+        window_id = _selected_window(event, wins)
+        if window_id is None:
+            st.info("Click a point on the map to see that window's forecast and its cluster's explanation.")
+        else:
+            _window_detail(run, window_id, tpl)
 
 
 # --------------------------------------------------------------------------- Series
@@ -411,10 +558,28 @@ def _series_windows_table(run: RunResult, series_id: str) -> pd.DataFrame:
     )
 
 
-def tab_series(run: RunResult) -> None:
+def _series_order(run: RunResult) -> tuple[list[str], dict[str, int]]:
+    """Series ids sorted by number of anomalous windows (desc, then id) and the counts."""
     gated = run.windows[run.windows["gated"].astype(bool)].groupby("series_id").size()
     counts = {sid: int(gated.get(sid, 0)) for sid in run.data["series_id"].unique()}
-    ids = sorted(counts, key=lambda sid: (-counts[sid], sid))
+    return sorted(counts, key=lambda sid: (-counts[sid], sid)), counts
+
+
+def _series_latent(run: RunResult, series_id: str, tpl: str) -> None:
+    """Small t-SNE map with this series' windows outlined."""
+    coords = cached_tsne(run, str(run.path), "all", run_stamp(run.path))
+    if coords is None:
+        return
+    fig = latent_figure(run.windows, coords, cluster_names=_cluster_names(run), highlight_series=series_id, template=tpl)
+    fig.update_layout(
+        title="Where this series sits in the latent space", height=340, showlegend=False,
+        margin=dict(l=10, r=10, t=40, b=10),
+    )
+    plot(fig)
+
+
+def tab_series(run: RunResult, tpl: str) -> None:
+    ids, counts = _series_order(run)
     if not ids:
         st.info("This run has no series.")
         return
@@ -426,14 +591,18 @@ def tab_series(run: RunResult) -> None:
     n_windows = int((run.windows["series_id"] == sid).sum())
     model = f"Model: {cards.iloc[0]} · " if len(cards) else ""
     st.caption(md_escape(f"{model}{counts[sid]} anomalous of {n_windows} windows"))
-    st.plotly_chart(series_figure(sid, run), width="stretch")
+    plot(series_figure(sid, run, template=tpl))
 
     st.subheader("Windows")
     table = _series_windows_table(run, sid)
-    if table.empty:
-        st.info("No forecast windows for this series.")
-    else:
-        st.dataframe(table, width="stretch", hide_index=True)
+    left, right = st.columns([3, 2])
+    with left:
+        if table.empty:
+            st.info("No forecast windows for this series.")
+        else:
+            st.dataframe(table, width="stretch", hide_index=True)
+    with right:
+        _series_latent(run, sid, tpl)
 
 
 # ---------------------------------------------------------------------- Evaluation
@@ -448,7 +617,7 @@ def _label(name: str) -> str:
     return name.replace("_", " ")
 
 
-def _comparison_figure(comp: dict) -> go.Figure:
+def _comparison_figure(comp: dict, tpl: str) -> go.Figure:
     pipe, alone = comp["pipeline"], comp["gemma_alone"]
     classes = list(pipe.get("per_class", {}))
     classes += [c for c in alone.get("per_class", {}) if c not in classes]
@@ -471,12 +640,12 @@ def _comparison_figure(comp: dict) -> go.Figure:
     fig.update_layout(
         barmode="group", yaxis_title="Accuracy (%)", yaxis_range=[0, 112], xaxis_title=None,
         margin=dict(l=10, r=10, t=30, b=10), height=380,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0), template=tpl,
     )
     return fig
 
 
-def _headline(comp: dict) -> None:
+def _headline(comp: dict, tpl: str) -> None:
     pipe, alone = comp["pipeline"], comp["gemma_alone"]
     n = comp.get("n_series")
     sample = f"{n}-series sample" if n is not None else "sample"
@@ -506,7 +675,7 @@ def _headline(comp: dict) -> None:
             label, f"{p_calls} vs {g_calls}", delta=ratio, delta_color="off", delta_arrow="off",
             help="TimeSeriousDoctor vs Gemma alone",
         )
-    st.plotly_chart(_comparison_figure(comp), width="stretch")
+    plot(_comparison_figure(comp, tpl))
 
 
 def _pipeline_metrics(ev: dict) -> None:
@@ -539,7 +708,7 @@ def _pipeline_metrics(ev: dict) -> None:
     )
 
 
-def _confusion_figure(run: RunResult, confusion: dict) -> go.Figure:
+def _confusion_figure(run: RunResult, confusion: dict, tpl: str) -> go.Figure:
     cids = sorted(confusion, key=lambda k: (int(k) < 0, int(k)))  # unclustered bucket last
     labels = sorted({lab for row in confusion.values() for lab in row}, key=lambda x: (x == "healthy", x))
     rows = []
@@ -554,11 +723,11 @@ def _confusion_figure(run: RunResult, confusion: dict) -> go.Figure:
         z, x=[_label(lab) for lab in labels], y=rows, text_auto=True, aspect="auto",
         color_continuous_scale="Blues", labels=dict(x="true label", y="cluster", color="windows"),
     )
-    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=120 + 60 * len(rows))
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=120 + 60 * len(rows), template=tpl)
     return fig
 
 
-def tab_evaluation(run: RunResult) -> None:
+def tab_evaluation(run: RunResult, tpl: str) -> None:
     ev = run.eval
     if not ev:
         st.info("No eval.json for this run — run scripts/run_eval.py")
@@ -566,7 +735,7 @@ def tab_evaluation(run: RunResult) -> None:
 
     comp = ev.get("comparison")
     if comp and comp.get("pipeline") and comp.get("gemma_alone"):
-        _headline(comp)
+        _headline(comp, tpl)
         st.divider()
     _pipeline_metrics(ev)
 
@@ -574,7 +743,7 @@ def tab_evaluation(run: RunResult) -> None:
     if confusion:
         st.subheader("Clusters vs true failure types")
         st.caption("Windows per cluster and true label; a clean heatmap has one dark cell per row.")
-        st.plotly_chart(_confusion_figure(run, confusion), width="stretch")
+        plot(_confusion_figure(run, confusion, tpl))
 
 
 # ------------------------------------------------------------------------------ main
@@ -584,19 +753,28 @@ def main() -> None:
     st.title("TimeSeriousDoctor")
     st.caption("Failure atlas for forecasting models: where, how and why forecasts go wrong.")
 
+    st.sidebar.title("TimeSeriousDoctor")
+    dark = theme_toggle()
+    apply_theme(dark)
+    tpl = plotly_template(dark)
+
     run = sidebar(list_runs(runs_dir()))
     if run is None:
         st.info("Select or create a run in the sidebar to see the atlas.")
     else:
-        atlas, cluster, series, evaluation = st.tabs(["Atlas", "Cluster", "Series", "Evaluation"])
+        atlas, latent, cluster, series, evaluation = st.tabs(
+            ["Atlas", "Latent space", "Cluster", "Series", "Evaluation"]
+        )
         with atlas:
-            tab_atlas(run)
+            tab_atlas(run, tpl)
+        with latent:
+            tab_latent(run, tpl)
         with cluster:
-            tab_cluster(run)
+            tab_cluster(run, tpl)
         with series:
-            tab_series(run)
+            tab_series(run, tpl)
         with evaluation:
-            tab_evaluation(run)
+            tab_evaluation(run, tpl)
 
     st.divider()
     st.caption(DISCLAIMER)

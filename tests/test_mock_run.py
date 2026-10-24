@@ -99,7 +99,7 @@ def test_mock_run_is_deterministic(mock_runs, tmp_path):
 def test_app_renders_mock_run(mock_runs, monkeypatch):
     at = run_app(mock_runs, monkeypatch)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Atlas", "Cluster", "Series", "Evaluation"]
+    assert [t.label for t in at.tabs] == ["Atlas", "Latent space", "Cluster", "Series", "Evaluation"]
     assert [m.label for m in at.metric][:5] == ["Series", "Windows", "Anomalous", "Clusters", "Unclustered"]
     assert [m.value for m in at.metric][:5] == ["20", "100", "44", "3", "4"]
     assert {b.key for b in at.button} >= {"open_0", "open_1", "open_2", "open_-1"}
