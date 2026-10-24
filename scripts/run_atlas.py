@@ -2,7 +2,7 @@
 
 Owner: A. Task: P0.14. Spec: SPEC.md §7.10.
 
-    python scripts/run_atlas.py --data data/synthetic --embedder features --run-name synth_features [--no-gemma]
+    python scripts/run_atlas.py --data data/synthetic --embedder features --run-name synth_features [--no-gemma] [--expert-from runs/<prev_run>]
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--config", type=Path, default=REPO_ROOT / "config.default.yaml")
     ap.add_argument("--gate-mode", choices=["threshold", "quantile"], help="override config gate.mode")
     ap.add_argument("--no-gemma", action="store_true", help="skip the Gemma reports and summary")
+    ap.add_argument("--expert-from", type=Path, help="earlier run folder (runs/<name>) whose expert_feedback.json guides Gemma")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -34,7 +35,7 @@ def main(argv: list[str] | None = None) -> None:
         cfg = cfg.model_copy(update={"embedder": args.embedder})
     if args.gate_mode:
         cfg = cfg.model_copy(update={"gate": cfg.gate.model_copy(update={"mode": args.gate_mode})})
-    run_atlas(args.data, cfg, args.run_name, use_gemma=not args.no_gemma)
+    run_atlas(args.data, cfg, args.run_name, use_gemma=not args.no_gemma, expert_from=args.expert_from)
 
 
 if __name__ == "__main__":

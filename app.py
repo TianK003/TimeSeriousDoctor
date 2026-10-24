@@ -2,11 +2,13 @@
 
 Atlas, Cluster, Series and Evaluation tabs over a precomputed run folder (SPEC.md §7.12).
 Runs are produced by the CLI (`python scripts/run_atlas.py`, or `python scripts/make_mock_run.py`
-for a fake one); the app only reads them. Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
+for a fake one); the app only reads them, except the expert review in the Cluster tab, which writes
+`expert_feedback.json` into the run folder. Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -18,6 +20,7 @@ import streamlit as st
 
 from atlas.plots import atlas_scatter, series_figure
 from atlas.schema import CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, RunResult, list_runs, load_run
+from atlas.taxonomy import load_taxonomy
 
 DISCLAIMER = (
     "Automated diagnostics — suggestions to investigate, not guarantees; "
@@ -33,6 +36,9 @@ BADGE_COLORS = {
     "other": "gray",
 }
 CARDS_PER_ROW = 3
+EXPERT_FILE = "expert_feedback.json"
+EXPERT_VERDICTS = {"Confirm": "confirmed", "Reject": "rejected", "Rename": "renamed"}  # radio label -> status
+EXPERT_STATUSES = set(EXPERT_VERDICTS.values())
 PIPELINE_COLOR = "#4c78a8"
 GEMMA_ALONE_COLOR = "#e45756"
 
@@ -62,17 +68,50 @@ def load_selected_run(path: Path) -> RunResult | None:
         return None
 
 
-def cluster_title(c: ClusterInfo) -> str:
+def expert_entry(run: RunResult, cluster_id: int) -> dict | None:
+    """The saved expert verdict for a cluster (run.expert_feedback), or None."""
+    entry = (run.expert_feedback or {}).get(str(cluster_id))
+    return entry if isinstance(entry, dict) and entry.get("status") in EXPERT_STATUSES else None
+
+
+def gemma_title(c: ClusterInfo) -> str:
     if c.cluster_id == CLUSTER_NOISE:
         return "Unclustered windows"
     return c.report.name if c.report is not None else f"Cluster {c.cluster_id} (no explanation)"
 
 
-def failure_badge(c: ClusterInfo) -> None:
-    if c.report is not None:
-        st.badge(c.report.failure_type.replace("_", " "), color=BADGE_COLORS.get(c.report.failure_type, "gray"))
+def cluster_title(c: ClusterInfo, expert: dict | None = None) -> str:
+    """Display name: the expert's name for a renamed cluster, else Gemma's."""
+    if expert is not None and expert["status"] == "renamed" and expert.get("name"):
+        return str(expert["name"])
+    return gemma_title(c)
+
+
+def run_title(run: RunResult, c: ClusterInfo) -> str:
+    return cluster_title(c, expert_entry(run, c.cluster_id))
+
+
+def failure_badge(c: ClusterInfo, expert: dict | None = None) -> None:
+    ftype = c.report.failure_type if c.report is not None else None
+    if expert is not None and expert["status"] != "rejected" and expert.get("failure_type"):
+        ftype = expert["failure_type"]
+    if ftype is not None:
+        st.badge(str(ftype).replace("_", " "), color=BADGE_COLORS.get(ftype, "gray"))
     elif c.cluster_id == CLUSTER_NOISE:
         st.badge("look manually", color="gray")
+
+
+def expert_badge(expert: dict | None, with_name: bool = False) -> None:
+    """Badge for the saved expert verdict (nothing if there is none)."""
+    if expert is None:
+        return
+    if expert["status"] == "confirmed":
+        st.badge("✔ Expert-confirmed", color="green")
+    elif expert["status"] == "rejected":
+        st.badge("✖ Rejected by expert", color="red")
+    else:
+        name = str(expert.get("name", "")).replace("[", "(").replace("]", ")")  # brackets would end the badge
+        st.badge(f"✎ Renamed by expert: {md_escape(name)}" if with_name else "✎ Renamed by expert", color="violet")
 
 
 def sidebar(runs: list[Path]) -> RunResult | None:
@@ -140,8 +179,12 @@ def tab_atlas(run: RunResult) -> None:
     for i in range(0, len(cards), CARDS_PER_ROW):
         for col, c in zip(st.columns(CARDS_PER_ROW), cards[i:i + CARDS_PER_ROW]):
             with col, st.container(border=True):
-                st.markdown(f"#### {md_escape(cluster_title(c))}")
-                failure_badge(c)
+                expert = expert_entry(run, c.cluster_id)
+                st.markdown(f"#### {md_escape(cluster_title(c, expert))}")
+                if expert is not None and expert["status"] == "renamed":
+                    st.caption(f"Gemma: {md_escape(gemma_title(c))}")
+                failure_badge(c, expert)
+                expert_badge(expert)
                 conf = f" · confidence {c.report.confidence:.0%}" if c.report is not None else ""
                 st.caption(f"{c.size} windows · {c.n_series} series{conf}")
                 if c.report is not None:
@@ -186,6 +229,74 @@ def _show_series(key: str) -> None:
     st.session_state["opened_series"] = st.session_state[key]
 
 
+def _save_expert_review(run_path: Path, c: ClusterInfo) -> None:
+    """Button callback: upsert this cluster's verdict in expert_feedback.json, then drop the loader cache."""
+    cid, ss = c.cluster_id, st.session_state
+    status = EXPERT_VERDICTS[ss[f"expert_verdict_{cid}"]]
+    gemma_name = c.report.name if c.report is not None else ""
+    gemma_type = c.report.failure_type if c.report is not None else "other"
+    entry = {
+        "status": status,
+        "name": ss[f"expert_name_{cid}"].strip() if status == "renamed" else gemma_name,
+        "failure_type": gemma_type if status == "rejected" else ss[f"expert_type_{cid}"],
+        "note": ss[f"expert_note_{cid}"].strip(),
+        "gemma_name": gemma_name,
+        "summary": c.report.summary if c.report is not None else "",
+        "feature_median": c.feature_median,
+        "feature_median_all_gated": c.feature_median_all_gated,
+    }
+    path = Path(run_path) / EXPERT_FILE
+    feedback = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    feedback[str(cid)] = entry
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(feedback, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+    cached_load_run.clear()
+    ss["expert_saved"] = cid
+
+
+def expert_review(run: RunResult, c: ClusterInfo, saved: dict | None) -> None:
+    """Expert review box: confirm / reject / rename Gemma's diagnosis (SPEC P2.2)."""
+    if c.cluster_id < 0 or run.path is None:  # the unclustered bucket has no diagnosis to review
+        return
+    cid = c.cluster_id
+    types = list(load_taxonomy())
+    if "other" not in types:
+        types.append("other")
+    default_type = (saved or {}).get("failure_type") or (c.report.failure_type if c.report is not None else "other")
+    if default_type not in types:
+        types.append(default_type)
+    verdicts = list(EXPERT_VERDICTS) if c.report is not None else ["Rename"]  # nothing to confirm without a report
+    saved_verdict = next((k for k, v in EXPERT_VERDICTS.items() if saved and v == saved["status"]), None)
+
+    with st.container(border=True):
+        st.markdown("#### Expert review")
+        st.caption(
+            "Confirm, reject or rename Gemma's diagnosis. Reviewed clusters become reference examples for Gemma "
+            f"when you re-run with `--expert-from {run.path}`."
+        )
+        verdict = st.radio(
+            "Verdict", verdicts, key=f"expert_verdict_{cid}", horizontal=True,
+            index=verdicts.index(saved_verdict) if saved_verdict in verdicts else 0,
+        )
+        name = ""
+        if verdict == "Rename":
+            name = st.text_input(
+                "New name", key=f"expert_name_{cid}", max_chars=80,
+                value=(saved or {}).get("name", "") if saved_verdict == "Rename" else "",
+            )
+        if verdict != "Reject":
+            st.selectbox("Failure type", types, key=f"expert_type_{cid}", index=types.index(default_type))
+        st.text_area("Note (optional)", key=f"expert_note_{cid}", max_chars=500, value=(saved or {}).get("note", ""))
+        st.button(
+            "Save expert review", key=f"expert_save_{cid}", type="primary",
+            disabled=verdict == "Rename" and not name.strip(),
+            on_click=_save_expert_review, args=(run.path, c),
+        )
+        if st.session_state.pop("expert_saved", None) == cid:
+            st.success("Saved. The verdict is shown on the cluster card and in the Cluster tab header.")
+
+
 def tab_cluster(run: RunResult) -> None:
     if not run.clusters:
         st.info("This run has no clusters.")
@@ -197,12 +308,16 @@ def tab_cluster(run: RunResult) -> None:
         "Cluster",
         ids,
         key="cluster_id",
-        format_func=lambda i: f"{i}: {cluster_title(run.cluster(i))}" if i >= 0 else cluster_title(run.cluster(i)),
+        format_func=lambda i: f"{i}: {run_title(run, run.cluster(i))}" if i >= 0 else run_title(run, run.cluster(i)),
     )
     c = run.cluster(cid)
+    expert = expert_entry(run, cid)
 
-    st.header(md_escape(cluster_title(c)))
-    failure_badge(c)
+    st.header(md_escape(cluster_title(c, expert)))
+    failure_badge(c, expert)
+    expert_badge(expert, with_name=True)
+    if expert is not None and expert["status"] == "renamed":
+        st.caption(f"Gemma's name: {md_escape(gemma_title(c))}")
     st.caption(f"{c.size} windows · {c.n_series} series")
 
     r = c.report
@@ -224,6 +339,8 @@ def tab_cluster(run: RunResult) -> None:
         for fix in r.suggested_fixes:
             st.markdown(f"- {md_escape(fix)}")
         st.markdown(f"**Metric to monitor:** {md_escape(r.metric_to_monitor)}")
+
+    expert_review(run, c, expert)
 
     st.subheader("Example windows")
     img = run.path / c.image_path if (run.path is not None and c.image_path) else None
@@ -273,7 +390,7 @@ def _window_cluster_name(run: RunResult, cluster_id: int) -> str:
     if cluster_id == CLUSTER_NOT_GATED:
         return "not anomalous"
     try:
-        return cluster_title(run.cluster(cluster_id))
+        return run_title(run, run.cluster(cluster_id))
     except KeyError:
         return f"Cluster {cluster_id}"
 
@@ -428,7 +545,7 @@ def _confusion_figure(run: RunResult, confusion: dict) -> go.Figure:
     rows = []
     for k in cids:
         try:
-            title = cluster_title(run.cluster(int(k)))
+            title = run_title(run, run.cluster(int(k)))
             rows.append(f"{k}: {title}" if int(k) >= 0 else title)
         except KeyError:
             rows.append(f"Cluster {k}")
