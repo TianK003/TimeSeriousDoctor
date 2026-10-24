@@ -1,0 +1,1 @@
+{"failure_type":"unadapted_shift","confidence":0.9,"explanation":"The actual values undergo a significant downward trend starting in 2024-04, which the seasonal naive model fails to adapt to, resulting in persistent under-prediction (positive bias) as the actuals drop. The forecast follows the previous seasonal pattern without adjusting to the level shift/trend change."}

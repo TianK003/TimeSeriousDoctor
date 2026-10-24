@@ -1,0 +1,91 @@
+{
+  "run": "synth_features",
+  "embedder": "features",
+  "gate": {
+    "precision": 0.787556904400607,
+    "recall": 0.9936183790682833,
+    "f1": 0.878668171557562
+  },
+  "clustering": {
+    "ari": 0.5739518580433788,
+    "nmi": 0.6925604451898412,
+    "purity": 0.8451519536903039,
+    "noise_share": 0.1123956326268465,
+    "confusion": {
+      "-1": {
+        "delayed_response": 52,
+        "healthy": 139,
+        "missed_peak": 27,
+        "over_smoothing": 21,
+        "unadapted_shift": 75
+      },
+      "0": {
+        "delayed_response": 7,
+        "healthy": 252,
+        "missed_peak": 324,
+        "over_smoothing": 182
+      },
+      "1": {
+        "delayed_response": 345
+      },
+      "2": {
+        "unadapted_shift": 151
+      },
+      "3": {
+        "healthy": 24,
+        "missed_peak": 21,
+        "over_smoothing": 80
+      },
+      "4": {
+        "unadapted_shift": 112
+      },
+      "5": {
+        "healthy": 4,
+        "missed_peak": 4,
+        "over_smoothing": 100
+      },
+      "6": {
+        "healthy": 1,
+        "unadapted_shift": 29
+      },
+      "7": {
+        "unadapted_shift": 27
+      }
+    }
+  },
+  "naming_accuracy": 1.0,
+  "series_accuracy": 0.8225,
+  "comparison": {
+    "n_series": 40,
+    "pipeline": {
+      "accuracy": 0.8,
+      "macro_f1": 0.7333333333333333,
+      "per_class": {
+        "delayed_response": 1.0,
+        "healthy": 1.0,
+        "missed_peak": 1.0,
+        "over_smoothing": 0.0,
+        "unadapted_shift": 1.0
+      },
+      "gemma_calls": 9,
+      "n_clusters_without_report": 0
+    },
+    "gemma_alone": {
+      "accuracy": 0.55,
+      "macro_f1": 0.46166426166426167,
+      "per_class": {
+        "delayed_response": 0.0,
+        "healthy": 0.75,
+        "missed_peak": 0.125,
+        "over_smoothing": 1.0,
+        "unadapted_shift": 0.875
+      },
+      "gemma_calls": 40,
+      "n_failed": 0
+    },
+    "gemma_calls_full_dataset": {
+      "pipeline": 9,
+      "gemma_alone": 400
+    }
+  }
+}

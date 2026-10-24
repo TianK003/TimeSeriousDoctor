@@ -1,0 +1,1 @@
+{"failure_type": "healthy_noise", "confidence": 0.9, "explanation": "The forecast tracks the seasonal pattern and amplitude of the actuals very closely in the presence of 1.0 variability ratio. The errors are zero-centered and show no systematic bias or lag signature."}

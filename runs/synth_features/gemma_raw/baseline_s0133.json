@@ -1,0 +1,1 @@
+{"failure_type": "healthy_noise", "confidence": 0.9, "explanation": "The forecast tracks the seasonal amplitude and level of the actuals very closely in the forecast period. Errors are small and show no systematic pattern of lag, smoothing, or level shifts."}

@@ -1,0 +1,9 @@
+{
+  "headline": "8 recurring failure patterns across 320 series",
+  "summary": "The largest patterns are: Spiky Residuals with Low Bias (765 windows, 243 series); Lagging Seasonal Cycles (345 windows, 80 series); Persistent Under-prediction Level Shift (151 windows, 45 series). (summary composed from the cluster reports)",
+  "actions": [
+    "Add event or promotion calendar features",
+    "Model differences or growth rates instead of levels",
+    "Use a shorter or recency-weighted training window to prioritize recent levels."
+  ]
+}

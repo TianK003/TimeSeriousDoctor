@@ -1,0 +1,1 @@
+{"failure_type":"unadapted_shift", "confidence":0.95, "explanation":"The actuals undergo a structural break in early 2024, shifting to a higher level, while the forecast remains at the lower historical level. This results in persistent under-prediction (positive bias) and a long sign run of errors. The actuals jump from ~110 to ~150, while the forecast peaks at ~120."}

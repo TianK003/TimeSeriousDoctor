@@ -1,0 +1,246 @@
+{
+  "truth": {
+    "s0003": "delayed_response",
+    "s0009": "missed_peak",
+    "s0012": "delayed_response",
+    "s0026": "delayed_response",
+    "s0046": "missed_peak",
+    "s0065": "unadapted_shift",
+    "s0070": "over_smoothing",
+    "s0084": "delayed_response",
+    "s0086": "missed_peak",
+    "s0101": "delayed_response",
+    "s0106": "over_smoothing",
+    "s0130": "over_smoothing",
+    "s0133": "healthy",
+    "s0135": "over_smoothing",
+    "s0145": "missed_peak",
+    "s0172": "unadapted_shift",
+    "s0181": "delayed_response",
+    "s0207": "healthy",
+    "s0213": "healthy",
+    "s0220": "over_smoothing",
+    "s0222": "healthy",
+    "s0223": "delayed_response",
+    "s0225": "over_smoothing",
+    "s0226": "missed_peak",
+    "s0250": "healthy",
+    "s0253": "unadapted_shift",
+    "s0271": "unadapted_shift",
+    "s0282": "delayed_response",
+    "s0287": "unadapted_shift",
+    "s0296": "missed_peak",
+    "s0298": "over_smoothing",
+    "s0306": "unadapted_shift",
+    "s0314": "missed_peak",
+    "s0326": "healthy",
+    "s0345": "unadapted_shift",
+    "s0359": "unadapted_shift",
+    "s0362": "healthy",
+    "s0379": "over_smoothing",
+    "s0384": "missed_peak",
+    "s0396": "healthy"
+  },
+  "answers": {
+    "s0003": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.85,
+      "explanation": "The forecast fails to adapt to a significant upward trend starting in early 2024, resulting in persistent under-prediction. The actual values rise from approximately 70 to 110, while the forecast remains centered around a level of 50-80. The error is consistently positive (actual > predicted) for the latter half of the window, indicating a structural break or trend change that the seasonal-naive model cannot capture."
+    },
+    "s0009": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast follows the seasonal pattern but significantly underestimates the amplitude of the peaks and troughs. The red line is visibly flatter than the black line in the shaded region. This is typical for a seasonal-naive model that might be averaging or failing to capture the full range of the seasonal swings."
+    },
+    "s0012": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The actual values show a significant upward trend starting around 2024-04, which the red predicted line follows with a delay or fails to reach the new higher levels. The forecast stays at the previous seasonal pattern without adapting to the structural break in the level/trend. The actuals rise from ~120 to ~170, while the forecast remains centered around 110-120."
+    },
+    "s0026": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The forecast fails to capture the significant downward trend starting in early 2024, resulting in persistent under-prediction. The actual values drop much faster than the predicted values, leading to a long sequence of positive residuals. The actual series shows a structural break or a strong trend change that the model has not adapted to."
+    },
+    "s0046": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.8,
+      "explanation": "The forecast follows the seasonal pattern but significantly underestimates the amplitude of the peaks and troughs. The red predicted line is much flatter than the black actual line, especially in the high-amplitude swings seen in early 2024. This is characteristic of over-smoothing, where the model fails to capture the full range of motion."
+    },
+    "s0065": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.8,
+      "explanation": "The actual values (black line) shift to a higher level in early 2024, while the forecast (red line) remains at the previous level for several steps. This is characterized by a sign_run of high value and a persistent under-prediction (positive bias) positive bias. The model is failing to adapt to a structural break in the level of the level. The likely likely_causes are a structural break not represented in training data or a long training window dominated by thement of the old regime. Suggested fixes: use a shorter or recenting-weighted training window, or changepoint detection followed by a refit. Monitor the rolling bias. "
+    },
+    "s0070": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast (red) significantly underestimates the amplitude of the seasonal swings, resulting in a flattened profile compared to the actuals (black). This is a characteristic signature of over-smoothing, where the forecast fails to capture the full range of peaks and troughs. The var_ratio would be expected to be low, and the variance of the predicted values is clearly lower than the actuals. The AutoETS model is likely over-regularizing or failing to capture the full seasonal component. Suggested fixes: Add or strengthen seasonal features or Fourier terms; or check hierarchical reconciliation if applicable. The error likely oscillates with a seasonal shape. signature: var_ratio < 0.6; residual oscillates around zero with a seasonal shape."
+    },
+    "s0084": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The forecast fails to capture the structural break where actuals move from a baseline of ~60 to a new level of ~90. The red predicted line stays at the lower level for several steps before eventually catching up. This is characteristic of an unadapted shift. Evidence: 1. Actuals show a significant upward trend/level shift starting in 2024-01. 2. Predicted values are consistently under-predicting (positive bias) during the transition. 3. The error pattern shows a long sign run of positive residuals (actual > predicted)."
+    },
+    "s0086": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.8,
+      "explanation": "The forecast amplitude is significantly lower than the actuals, particularly at the peaks. Evidence: 1. The red predicted line is consistently flatter than the black actual line. 2. Residuals oscillate with a seasonal pattern. 3. The forecast misses the extreme spike around 2024-04. 4. The predicted values stay within a narrower range than the actual values."
+    },
+    "s0101": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The forecast fails to capture the upward trend in the actuals starting in early 2024, resulting in persistent under-prediction. The actuals move to a higher level while the forecast remains stuck at the previous regime's level for several months. [Evidence: sign_run is high; actuals show a clear upward trend in the shaded region; red predicted line is consistently below the black actual line during the upward climb.]"
+    },
+    "s0106": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast fails to capture the full amplitude of the seasonal swings, resulting in a flattened prediction curve. The predicted values oscillate between approximately 35 and 75, while the actuals reach peaks above 75 and troughs near 30. Evidence: var_ratio is low; residual oscillates with a seasonal shape; predicted amplitude is visibly smaller than actual amplitude."
+    },
+    "s0130": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast significantly under-predicts the amplitude of the seasonal swings, resulting in a flat line compared to the actuals. The red predicted line is much less volatile than the black actual line. The error oscillates with a seasonal pattern. The var_ratio is likely very low. The model is likely over-regularized or missing seasonal components. Suggested fixes: Add or strengthen seasonal features or Fourier terms; or check hierarchical reconciliation if applicable."
+    },
+    "s0133": {
+      "failure_type": "healthy_noise",
+      "confidence": 0.9,
+      "explanation": "The forecast tracks the seasonal amplitude and level of the actuals very closely in the forecast period. Errors are small and show no systematic pattern of lag, smoothing, or level shifts."
+    },
+    "s0135": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast (red) is significantly flatter than the actuals (black), missing the amplitude of the seasonal swings. The red line shows much lower variability compared to the actuals. The error oscillates with a seasonal pattern. The seasonal amplitude ratio (var_ratio) is clearly low. The likely causes are heavy regularization or predicting the conditional mean. Suggested fixes: Add or strengthen seasonal features or Fourier terms; or check hierarchical reconciliation."
+    },
+    "s0145": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast (red) consistently under-predicts the amplitude of the peaks and troughs, resulting in a flattened profile compared to the actuals (black). This is characteristic of over-smoothing. The actuals show strong weekly seasonality, strong seasonal amplitude, seasonal-naive-like variability, var_ratio is low, and the residual oscillates with a seasonal shape. The model is likely due toing on lag features only, which may be not capturing the enough seasonal amplitude. Suggested fixes: Add or strengthen seasonal features (day-of-week, Fourier terms); Reduce regularization; Check hierarchical reconciliation."
+    },
+    "s0172": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.95,
+      "explanation": "The actuals undergo a structural break in early 2024, shifting to a higher level, while the forecast remains at the lower historical level. This results in persistent under-prediction (positive bias) and a long sign run of errors. The actuals jump from ~110 to ~150, while the forecast peaks at ~120."
+    },
+    "s0181": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The actual values undergo a significant downward trend starting in 2024-04, which the seasonal naive model fails to adapt to, resulting in persistent under-prediction (positive bias) as the actuals drop. The forecast follows the previous seasonal pattern without adjusting to the level shift/trend change."
+    },
+    "s0207": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.85,
+      "explanation": "The forecast (red) consistently under-predicts the peaks of the seasonal cycle, resulting in a flattened amplitude compared to the actuals (black). This is characteristic of an over-smoothed forecast that fails to capture the full seasonal swing. Evidence: 1. The red line's peaks are visibly lower than the black line's peaks in the shaded forecast period. 2. The red line's troughs are also slightly shallower than the actuals. 3. The forecast amplitude is visibly smaller than the actual amplitude."
+    },
+    "s0213": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.85,
+      "explanation": "The forecast is too flat and misses the amplitude of regular seasonal swings. The red predicted line is consistently lower at the peaks and higher at the troughs, which is indicates an over-smoothing effect. The var_ratio is likely low, and the amplitude of the red line is visibly significantly smaller than the black line. The model is using lag features in LightGBM, which can lead to a way too much smoothing if seasonal features are period-specific. The suggested fixes are to add or strengthen seasonal features (day-of-week, Fourier terms) or reduce regularization. The metric to monitor is std(pred) / std(actual)."
+    },
+    "s0220": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast significantly flattens the seasonal amplitude of the actuals, particularly in the early part of the forecast period. The red predicted line is much less volatile-looking than the black actual line, showing a lower var_ratio. A high r_acf_season is expected here as the error oscillates with the seasonal cycle. The model is likely failing to capture the seasonal component. Likely causes: Heavy regularization or insufficient seasonal features. Suggested fixes: Add or strengthen seasonal features like day-of-week or Fourier terms; or reduce regularization in a lags-only model. Monitor: std(pred) / std(actual)."
+    },
+    "s0222": {
+      "failure_type": "healthy_noise",
+      "confidence": 0.9,
+      "explanation": "The forecast tracks the seasonal pattern and amplitude of the actuals very closely in the presence of 1.0 variability ratio. The errors are zero-centered and show no systematic bias or lag signature."
+    },
+    "s0223": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The forecast follows the old level and fails to capture the downward trend starting in 2024-03. The actuals drop significantly while the predicted values remain at a higher level, creating a large positive bias. This is a characteristic of a structural break or a change in trend that the model has not yet adapted to."
+    },
+    "s0225": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast significantly under-predicts the amplitude of the seasonal swings, resulting in a much flatter red line compared to the actual black line. This is characteristic of over-smoothing, where the model fails to to capture the weekly or seasonal pattern's full range. The forecast is too flat and misses the amplitude of regular swings. The forecast is too flat and misses the amplitude of amplitude of regular swings."
+    },
+    "s0226": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast (red) consistently under-predicts the amplitude of the peaks and troughs, failing to capture the full seasonal swing. This is characteristic of over-smoothing, where the forecast is too flat compared to the actuals. The var_ratio is likely low, and the coefficient of variation in the error is likely high. The model is a LightGBM on lag features, which can often lead to-over-smoothing if regularization is conditional mean prediction. It is recommended to minimizing theening-weighted loss or peak-weighted loss to better capture peaks. Or add more seasonal features like Fourier terms to capture the ability to the seasonal pattern. "
+    },
+    "s0250": {
+      "failure_type": "healthy_noise",
+      "confidence": 0.9,
+      "explanation": "The forecast tracks the seasonal amplitude and level of the actuals very closely in the shaded forecast period, with no visible systematic bias or lag. Errors appear to be random fluctuations around the zero-line."
+    },
+    "s0253": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The actual values have shifted to a higher level starting in early 2024, while the forecast remains at the previous level. The forecast shows a persistent under-prediction (positive bias) and a long streak of errors in the same direction. The actuals exhibit a clear upward trend that the Prophet model has failed to capture in the current window. The forecast amplitude is also significantly lower than the actuals, suggesting a model that is unadapted to the new regime."
+    },
+    "s0271": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.95,
+      "explanation": "The actual values drop to a new, lower level around 2024-02, while the forecast remains at the previous higher level. This is a structural break that the LightGBM model is failing to adapt to. Evidence: Actuals show a sharp drop from ~90 to ~30-40; Forecast stays in the 60-100 range; Sign of error is persistently positive (under-prediction) for a long period after the drop."
+    },
+    "s0282": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.85,
+      "explanation": "The forecast fails to capture the full amplitude of the seasonal swings, resulting in a flattened profile. Evidence: var_ratio < 0.6; residual oscillates with a seasonal shape; forecast amplitude is visibly lower than actual peaks and troughs. Likely causes: Heavy regularization or insufficient seasonal features; predicting the conditional mean. Suggested fixes: Add or strengthen seasonal features (e.g., Fourier terms); reduce regularization."
+    },
+    "s0287": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.95,
+      "explanation": "The actual values drop significantly to a new, lower level starting around 2024-05, while the forecast remains at the previous higher level. This is a clear structural break that the model has not yet adapted to, likely due to the unrepresented structural break in training data or the model's inability to to predict beyond the target range seen in training. Evidence: actuals drop from ~110-120 range to ~40-80 range; sign_run is high (errors are consistently negative/under-prediction is not the case here, actual is lower than predicted, so residual is negative, error is persistent); the forecast stays at the high level while actuals drop."
+    },
+    "s0296": {
+      "failure_type": "missed_peak",
+      "confidence": 0.85,
+      "explanation": "The forecast consistently under-predicts the highest peaks in the actual series, particularly in the most recent months. The seasonal naive model is likely failing to capture the extreme values of the seasonal cycle. Evidence: 1. Actual peaks reach above 110, while predicted peaks stay below 100. 2. Large positive residuals at peak points. 3. High spike_ratio in the forecast period. 4. The error is concentrated at the peaks rather than the baseline. "
+    },
+    "s0298": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast significantly underestimates the seasonal amplitude of the actual values. The red predicted line is much flatter than the black actual line, showing a reduced variance ratio. The error oscillates with a seasonal pattern, suggesting the model is failing to capture the full strength of the continuous weekly oscillations."
+    },
+    "s0306": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast significantly under-predicts the amplitude of the seasonal swings, resulting in a persistent negative bias. The red line (predicted) has a much smaller vertical range than the black line (actual)."
+    },
+    "s0314": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast captures the seasonal pattern but consistently underestimates the amplitude of the peaks and troughs, resulting in a lower variance ratio. The red predicted line is visibly flatter than the black actual line throughout the forecast period."
+    },
+    "s0326": {
+      "failure_type": "healthy_noise",
+      "confidence": 0.9,
+      "explanation": "The forecast tracks the seasonal oscillations of the actuals very closely with no systematic bias or lag. The red predicted line and black actual line overlap significantly throughout the entire shaded forecast period, indicating high accuracy for this AutoARIMA model."
+    },
+    "s0345": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.9,
+      "explanation": "The actual values have shifted to a new, higher level starting in March 2024, while the forecast remains at the previous level. This is a persistent under-prediction (positive bias) and a long sign run of errors. The seasonal naive model is likely failing to catch the structural break in the level shift. Suggested fixes: use a shorter or recency-weighted training window, or incorporate a linear trend component to allow the model to adapt to level shifts more quickly."
+    },
+    "s0359": {
+      "failure_type": "unadapted_shift",
+      "confidence": 0.95,
+      "explanation": "The actual values drop to a new, lower level around 2024-04, while the forecast remains at the previous higher level. This is a structural break that the model is failing to adapt to. Evidence: actuals drop from ~120 to ~60; predicted values stay in the 80-130 range; sign_run is high due to persistent under-prediction during the level shift."
+    },
+    "s0362": {
+      "failure_type": "healthy_noise",
+      "confidence": 0.9,
+      "explanation": "The forecast (red) tracks the actuals (black) very closely in the forecast period, with errors appear to be random and show no systematic pattern of lag, level shift, or smoothing. The amplitude and phase of captures the seasonal pattern well."
+    },
+    "s0379": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast (red) follows the seasonal pattern but significantly reduces the amplitude of the swings, failing to reach the peaks and troughs. This is characteristic of over-smoothing, where the forecast is too flat compared to the actuals. The seasonal autocorrelation of the error is likely high, and the way the forecast stays within a mid-range level, missing the extremes, is the signature of over-smoothing. The seasonal amplitude ratio is var_ratio < 0.6."
+    },
+    "s0384": {
+      "failure_type": "over_smoothing",
+      "confidence": 0.9,
+      "explanation": "The forecast fails to capture the full amplitude of the seasonal swings, resulting in a predictable oscillating error pattern. The predicted values are consistently flatter than the actuals, particularly at the peaks and troughs. The error shows a seasonal shape, oscillating around zero. The actuals show a higher variance-to-actual ratio than the forecast. The AutoARIMA model is likely under-estimating the amplitude of-seasonal components. Suggested fixes: Add or strengthen seasonal features (day-of-week, or Fourier terms); Reduce regularization; Check hierarchical reconciliation."
+    },
+    "s0396": {
+      "failure_type": "healthy_noise",
+      "confidence": 0.9,
+      "explanation": "The forecast (red) tracks the actuals (black) very closely in the shaded forecast period, capturing both the peaks and the troughs. There is no systematic bias or lag, and the error is small and non-systematic, suggesting the irreducible noise of the series. The var_ratio is likely near 1.0 and sign_run is low."
+    }
+  }
+}

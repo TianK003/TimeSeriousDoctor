@@ -1,0 +1,1 @@
+{"failure_type":"over_smoothing","confidence":0.9,"explanation":"The forecast captures the seasonal pattern but consistently underestimates the amplitude of the peaks and troughs, resulting in a lower variance ratio. The red predicted line is visibly flatter than the black actual line throughout the forecast period."}

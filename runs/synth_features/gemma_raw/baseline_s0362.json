@@ -1,0 +1,1 @@
+{"failure_type":"healthy_noise","confidence":0.9,"explanation":"The forecast (red) tracks the actuals (black) very closely in the forecast period, with errors appear to be random and show no systematic pattern of lag, level shift, or smoothing. The amplitude and phase of captures the seasonal pattern well."}

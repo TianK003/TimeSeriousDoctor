@@ -11,7 +11,8 @@ __pycache__/
 
 # generated artifacts (see SPEC.md §4)
 /data/
-/runs/
+/runs/*
+!/runs/synth_features/
 /cache/
 
 # tooling scratch

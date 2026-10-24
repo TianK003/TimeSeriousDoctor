@@ -1,0 +1,667 @@
+[
+  {
+    "cluster_id": 0,
+    "size": 765,
+    "n_series": 243,
+    "medoid_window_ids": [
+      "s0264#42",
+      "s0145#84",
+      "s0096#70"
+    ],
+    "feature_median": {
+      "abs_err": 0.9285311126174681,
+      "bias": 0.2257620800562643,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.31006353651457386,
+      "peak_excess": 1.8023700373646911,
+      "var_ratio": 0.8728124802542918,
+      "sign_run": 0.17857142857142858,
+      "r_trend": 0.03261943978124252,
+      "dir_acc": 0.8888888888888888,
+      "r_acf_season": 0.03379796412087907,
+      "spike_ratio": 5.185597070771202
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "AutoETS": 0.23006535947712417,
+      "AutoARIMA": 0.22745098039215686,
+      "LightGBM on lag features": 0.20261437908496732,
+      "Seasonal naive": 0.1869281045751634,
+      "Prophet": 0.15294117647058825
+    },
+    "context": null,
+    "image_path": "images/cluster_0.png",
+    "report": {
+      "failure_type": "missed_peak",
+      "name": "Spiky Residuals with Low Bias",
+      "summary": "The forecast fails to capture high-amplitude spikes, resulting in a large spike ratio and high peak excess.",
+      "evidence": [
+        "abs_err is 0.93, which is relatively low compared to all anomalous windows",
+        "peak_excess is 1.80, indicating significant under-prediction at peaks",
+        "spike_ratio is 5.19, which is much higher than the average for all anomalous windows",
+        "dir_acc is 0.89, showing the forecast tracks direction well most of the time"
+      ],
+      "likely_causes": [
+        {
+          "cause": "No event or promotion features",
+          "why": "The high spike ratio and peak excess suggest the model is missing specific, short-lived events that drive peaks."
+        },
+        {
+          "cause": "Loss function optimization for mean",
+          "why": "Models like AutoETS and AutoARIMA might be averaging out spikes to minimize overall error."
+        }
+      ],
+      "suggested_fixes": [
+        "Add event or promotion calendar features",
+        "Use a quantile loss or peak-weighted loss function"
+      ],
+      "metric_to_monitor": "Error on top-decile actuals",
+      "confidence": 0.85
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 1,
+    "size": 345,
+    "n_series": 80,
+    "medoid_window_ids": [
+      "s0138#112",
+      "s0256#112",
+      "s0334#70"
+    ],
+    "feature_median": {
+      "abs_err": 3.8701890479352046,
+      "bias": 0.016395906633173998,
+      "best_lag": 3.0,
+      "lag_gain": 1.1239555349180979,
+      "slope_corr": 0.4406848559578478,
+      "peak_excess": 5.934137450818543,
+      "var_ratio": 1.0083394672505988,
+      "sign_run": 0.14285714285714285,
+      "r_trend": -0.5154123491329009,
+      "dir_acc": 0.4074074074074074,
+      "r_acf_season": 0.9091541726763258,
+      "spike_ratio": 2.1881227063313937
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "AutoARIMA": 0.33043478260869563,
+      "Seasonal naive": 0.21159420289855072,
+      "AutoETS": 0.16231884057971013,
+      "LightGBM on lag features": 0.1565217391304348,
+      "Prophet": 0.1391304347826087
+    },
+    "context": null,
+    "image_path": "images/cluster_1.png",
+    "report": {
+      "failure_type": "delayed_response",
+      "name": "Lagging Seasonal Cycles",
+      "summary": "The forecast follows the seasonal pattern but lags behind the actuals by several steps. This results in high error when the actuals are moving rapidly.",
+      "evidence": [
+        "best_lag is 3.00, indicating a significant temporal shift",
+        "lag_gain is 1.12, showing a clear improvement with shift",
+        "slope_corr is 0.44, meaning error correlates with actual's slope",
+        "visual inspection of examples 1 and 2 shows red line trailing black line"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Over-reliance on recent lags",
+          "why": "Models like LightGBM and AutoARIMA may be heavily weighting recent history to predict the next step, causing a delay in response to changes in direction."
+        },
+        {
+          "cause": "Missing leading indicators",
+          "why": "Why the seasonal pattern is being tracked, easily identifiable by high r_acf_season (0.91) and high peak_excess (5.93) as the peaks are being missed/delayed in timing."
+        }
+      ],
+      "suggested_fixes": [
+        "Model differences or growth rates instead of levels",
+        "Add leading indicators or exogenous features",
+        "Retrain more often or use online updating"
+      ],
+      "metric_to_monitor": "Peak cross-correlation lag between forecast and actual",
+      "confidence": 0.9
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 2,
+    "size": 151,
+    "n_series": 45,
+    "medoid_window_ids": [
+      "s0002#126",
+      "s0189#42",
+      "s0359#84"
+    ],
+    "feature_median": {
+      "abs_err": 5.367395727266456,
+      "bias": -5.358133150474363,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.007472130590461187,
+      "peak_excess": -0.011217508049310432,
+      "var_ratio": 1.0035672248112737,
+      "sign_run": 1.0,
+      "r_trend": 0.014003362628807928,
+      "dir_acc": 0.9629629629629629,
+      "r_acf_season": -0.041827037419912734,
+      "spike_ratio": 1.1223297804774008
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "AutoARIMA": 0.2847682119205298,
+      "Seasonal naive": 0.2582781456953642,
+      "Prophet": 0.17880794701986755,
+      "AutoETS": 0.1390728476821192,
+      "LightGBM on lag features": 0.1390728476821192
+    },
+    "context": null,
+    "image_path": "images/cluster_2.png",
+    "report": {
+      "failure_type": "unadapted_shift",
+      "name": "Persistent Under-prediction Level Shift",
+      "summary": "The forecast is consistently and significantly under-predicting the actual values, maintaining a constant negative bias.",
+      "evidence": [
+        "abs_err is extremely high at 5.37 compared to 2.00 for all anomalous windows.",
+        "bias is -5.36, indicating a massive and persistent under-prediction.",
+        "sign_run is 1.00, meaning the error is persistently one-sided.",
+        "var_ratio is 1.00, showing the forecast variability matches the actuals.",
+        "dir_acc is 0.96, showing the forecast tracks direction well."
+      ],
+      "likely_causes": [
+        {
+          "cause": "Structural break in the series level.",
+          "why": "The actuals have moved to a new level that the models (especially statistical ones like ARIMA/ETS) have not yet adjusted to."
+        },
+        {
+          "cause": "Long training window.",
+          "why": "The models are being trained on data dominated by the old, lower level, making them slow to adapt to a shift."
+        },
+        {
+          "cause": "Tree-based models cannot predict beyond training range.",
+          "why": "LightGBM models might be stuck at the upper bound of the target range seen in training if the shift is an upward move."
+        }
+      ],
+      "suggested_fixes": [
+        "Use a shorter or recency-weighted training window to prioritize recent levels.",
+        "Implement changepoint detection to trigger a model refit.",
+        "Detrend or difference the target to help models focus on changes rather than absolute levels."
+      ],
+      "metric_to_monitor": "Rolling bias",
+      "confidence": 0.95
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 3,
+    "size": 125,
+    "n_series": 89,
+    "medoid_window_ids": [
+      "s0107#84",
+      "s0098#84",
+      "s0332#84"
+    ],
+    "feature_median": {
+      "abs_err": 1.736504464676545,
+      "bias": 0.07368451632814783,
+      "best_lag": 7.0,
+      "lag_gain": 0.04036316333001633,
+      "slope_corr": 0.4742636017587189,
+      "peak_excess": 3.643853125491868,
+      "var_ratio": 0.3560900810043619,
+      "sign_run": 0.14285714285714285,
+      "r_trend": 0.4805964895897207,
+      "dir_acc": 0.7777777777777778,
+      "r_acf_season": 0.7473771116102987,
+      "spike_ratio": 2.702380449908073
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "AutoETS": 0.264,
+      "LightGBM on lag features": 0.232,
+      "Seasonal naive": 0.208,
+      "Prophet": 0.16,
+      "AutoARIMA": 0.136
+    },
+    "context": null,
+    "image_path": "images/cluster_3.png",
+    "report": {
+      "failure_type": "over_smoothing",
+      "name": "Seasonal Amplitude Suppression",
+      "summary": "The forecast is too flat and significantly underestimates the amplitude of regular seasonal swings.",
+      "evidence": [
+        "var_ratio is 0.36, indicating a severe loss of variance compared to actuals.",
+        "peak_excess is 3.64, showing the forecast misses large seasonal peaks.",
+        "r_acf_season is 0.75, indicating the error has a strong weekly seasonal pattern.",
+        "Example 2 shows the red forecast line being much flatter than the black actual line."
+      ],
+      "likely_causes": [
+        {
+          "cause": "Insufficient seasonal modeling",
+          "why": "Models like LightGBM or Prophet may not be capturing the full seasonal amplitude or are being overly regularized."
+        },
+        {
+          "cause": "Predicting the conditional mean",
+          "why": "Under high uncertainty, models often default to a regularized mean, which flattens the peaks and troughs."
+        }
+      ],
+      "suggested_fixes": [
+        "Add or strengthen seasonal features (Fourier terms or day-of-week).",
+        "Reduce regularization in tree-based models.",
+        "Check for hierarchical reconciliation issues that might be average out the signal."
+      ],
+      "metric_to_monitor": "std(pred) / std(actual)",
+      "confidence": 0.9
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 4,
+    "size": 112,
+    "n_series": 35,
+    "medoid_window_ids": [
+      "s0317#42",
+      "s0185#56",
+      "s0050#56"
+    ],
+    "feature_median": {
+      "abs_err": 5.427303852395809,
+      "bias": 5.417362085792968,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.023587079235321662,
+      "peak_excess": 0.03577153913786124,
+      "var_ratio": 1.0073114932198357,
+      "sign_run": 1.0,
+      "r_trend": 0.022880029447992827,
+      "dir_acc": 0.9629629629629629,
+      "r_acf_season": -0.05517045612725748,
+      "spike_ratio": 1.1147958562508067
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "LightGBM on lag features": 0.36607142857142855,
+      "AutoETS": 0.1875,
+      "Seasonal naive": 0.16071428571428573,
+      "Prophet": 0.15178571428571427,
+      "AutoARIMA": 0.13392857142857142
+    },
+    "context": null,
+    "image_path": "images/cluster_4.png",
+    "report": {
+      "failure_type": "unadapted_shift",
+      "name": "Persistent Under-prediction",
+      "summary": "The forecast consistently under-predicts the actual values, maintaining a large positive bias throughout the window.",
+      "evidence": [
+        "abs_err is very high (5.43) compared to typical errors (2.00)",
+        "bias is extremely high (5.42) and positive",
+        "sign_run is 1.00, indicating a persistent one-sided error",
+        "residual plot shows a median residual consistently around 5.5"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Structural break in target level",
+          "why": "The actuals have moved to a higher level that the models, particularly tree-based ones like LightGBM, cannot extrapolate beyond training data range."
+        },
+        {
+          "cause": "Long training window dominated by old regime",
+          "why": "The models are trained on data that does not reflect the current higher level of the actuals."
+        }
+      ],
+      "suggested_fixes": [
+        "Use a shorter or recency-weighted training window",
+        "Apply changepoint detection and refit the model",
+        "Detrend or difference the target to allow models to predict beyond seen levels"
+      ],
+      "metric_to_monitor": "Rolling bias",
+      "confidence": 0.95
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 5,
+    "size": 108,
+    "n_series": 66,
+    "medoid_window_ids": [
+      "s0033#112",
+      "s0288#98",
+      "s0348#70"
+    ],
+    "feature_median": {
+      "abs_err": 1.8230334428590573,
+      "bias": -0.02027411691392481,
+      "best_lag": -7.0,
+      "lag_gain": 0.03588332175564313,
+      "slope_corr": 0.5030112432883393,
+      "peak_excess": 3.7813559095648204,
+      "var_ratio": 0.26047393469627234,
+      "sign_run": 0.14285714285714285,
+      "r_trend": -0.12842740549831538,
+      "dir_acc": 0.7407407407407407,
+      "r_acf_season": 0.7924315898033403,
+      "spike_ratio": 2.498096232013994
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "Seasonal naive": 0.3333333333333333,
+      "LightGBM on lag features": 0.18518518518518517,
+      "AutoARIMA": 0.18518518518518517,
+      "Prophet": 0.1574074074074074,
+      "AutoETS": 0.1388888888888889
+    },
+    "context": null,
+    "image_path": "images/cluster_5.png",
+    "report": {
+      "failure_type": "over_smoothing",
+      "name": "Dampened Seasonal Amplitude",
+      "summary": "The forecast is too flat and fails to capture the full amplitude of regular seasonal swings.",
+      "evidence": [
+        "var_ratio is  0.26, indicating significant flattening compared to actuals",
+        "peak_excess is 3.78, showing the forecast misses large peaks",
+        "r_acf_season is 0.79, indicating strong seasonal error pattern",
+        "visual inspection of examples 1-3 shows red lines staying within a much narrower range than black lines"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Heavy regularization or insufficient seasonal terms",
+          "why": "The low var_ratio and high seasonal error autocorrelation suggest the model is not capturing the full seasonal swing amplitude."
+        },
+        {
+          "cause": "Predicting the conditional mean under high uncertainty",
+          "why": "The model is likely averaging out the peaks and troughs to minimize error, resulting in a flattened forecast."
+        }
+      ],
+      "suggested_fixes": [
+        "Add or strengthen seasonal features (e.g., Fourier terms)",
+        "Reduce regularization in tree-based models",
+        "Check hierarchical reconciliation if applicable"
+      ],
+      "metric_to_monitor": "std(pred) / std(actual)",
+      "confidence": 0.9
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 6,
+    "size": 30,
+    "n_series": 30,
+    "medoid_window_ids": [
+      "s0287#112",
+      "s0077#56",
+      "s0323#56"
+    ],
+    "feature_median": {
+      "abs_err": 4.300893231299039,
+      "bias": -4.183968104978357,
+      "best_lag": -7.0,
+      "lag_gain": 0.09570241756172171,
+      "slope_corr": 0.09460514767647296,
+      "peak_excess": 4.623697242923973,
+      "var_ratio": 0.7432732401063891,
+      "sign_run": 0.75,
+      "r_trend": -5.976168021430398,
+      "dir_acc": 0.9259259259259259,
+      "r_acf_season": -0.013368283160854097,
+      "spike_ratio": 1.4461093482711123
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "AutoARIMA": 0.3333333333333333,
+      "LightGBM on lag features": 0.16666666666666666,
+      "AutoETS": 0.16666666666666666,
+      "Prophet": 0.16666666666666666,
+      "Seasonal naive": 0.16666666666666666
+    },
+    "context": null,
+    "image_path": "images/cluster_6.png",
+    "report": {
+      "failure_type": "unadapted_shift",
+      "name": "Persistent Level Shift Under-prediction",
+      "summary": "The forecast fails to adapt to a sudden downward shift in the actual values, resulting in a persistent negative bias.",
+      "evidence": [
+        "abs_err is high at 4.30 compared to the global anomalous average of 2.00",
+        "bias is strongly negative at -4.18",
+        "sign_run is 0.75, indicating a long streak of same-direction errors",
+        "r_trend is -5.98, showing a sharp drop in error level at the start of the window"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Structural break in the series",
+          "why": "The actual values drop to a new level that the models (especially tree-based or ARIMA) fail to track immediately."
+        },
+        {
+          "cause": "Long training window dominated by old regime",
+          "why": "The models are trained on data from the previous level, causing them to stay at the higher level for too long."
+        }
+      ],
+      "suggested_fixes": [
+        "Apply changepoint detection followed by a refit",
+        "Use recency-weighted training data",
+        "Detrend or difference the target to handle level shifts"
+      ],
+      "metric_to_monitor": "Rolling bias",
+      "confidence": 0.95
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 7,
+    "size": 27,
+    "n_series": 27,
+    "medoid_window_ids": [
+      "s0024#56",
+      "s0317#14",
+      "s0351#14"
+    ],
+    "feature_median": {
+      "abs_err": 4.045643315619438,
+      "bias": 3.9397836978359235,
+      "best_lag": -7.0,
+      "lag_gain": 0.054986386548284805,
+      "slope_corr": 0.03631630036709192,
+      "peak_excess": 1.7615649456669398,
+      "var_ratio": 0.7640846855305877,
+      "sign_run": 0.75,
+      "r_trend": 6.085871669890905,
+      "dir_acc": 0.9629629629629629,
+      "r_acf_season": -0.03378517104371878,
+      "spike_ratio": 1.4815471867946592
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "LightGBM on lag features": 0.25925925925925924,
+      "AutoARIMA": 0.2222222222222222,
+      "Prophet": 0.18518518518518517,
+      "Seasonal naive": 0.18518518518518517,
+      "AutoETS": 0.14814814814814814
+    },
+    "context": null,
+    "image_path": "images/cluster_7.png",
+    "report": {
+      "failure_type": "unadapted_shift",
+      "name": "Persistent level shift under-prediction",
+      "summary": "The forecast fails to adapt to a sudden upward shift in the level of the series, resulting in a persistent positive bias.",
+      "evidence": [
+        "abs_err is significantly higher (4.05) than the average anomalous window (2.00)",
+        "sign_run is high (0.75), indicating a long streak of same-direction errors",
+        "bias is highly positive (3.94), showing consistent under-prediction",
+        "r_trend is high (6.09), indicating the error is growing or shifting significantly"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Structural break in the target series",
+          "why": "The actuals move to a new, higher level that the model's training data or recent lags do not account for"
+        },
+        {
+          "cause": "Tree-based models (LightGBM) cannot extrapolate beyond training range",
+          "why": "The model is limited to the target range seen in training, preventing it from predicting the new higher level"
+        },
+        {
+          "cause": "Long training window dominated by old regime",
+          "why": "The model is still heavily weighted toward the historical mean/level of the previous regime"
+        }
+      ],
+      "suggested_fixes": [
+        "Use a shorter or recency-weighted training window",
+        "Implement changepoint detection followed by a model refit",
+        "Detrend or difference the target to allow models to better handle level shifts"
+      ],
+      "metric_to_monitor": "Rolling bias",
+      "confidence": 0.95
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": -1,
+    "size": 314,
+    "n_series": 170,
+    "medoid_window_ids": [
+      "s0357#126",
+      "s0262#56",
+      "s0266#154"
+    ],
+    "feature_median": {
+      "abs_err": 2.154467261589025,
+      "bias": -0.017616521584591482,
+      "best_lag": 0.0,
+      "lag_gain": 0.02083875085100978,
+      "slope_corr": 0.11906885522323038,
+      "peak_excess": 1.618202941069884,
+      "var_ratio": 1.0208791650388465,
+      "sign_run": 0.2857142857142857,
+      "r_trend": -0.19398405329598198,
+      "dir_acc": 0.9259259259259259,
+      "r_acf_season": 0.18449322612555474,
+      "spike_ratio": 3.08321021160359
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.995075187070146,
+      "bias": 0.11490858912724408,
+      "best_lag": 0.0,
+      "lag_gain": 0.0,
+      "slope_corr": 0.2743466384124853,
+      "peak_excess": 2.2386585054570465,
+      "var_ratio": 0.9451732361216042,
+      "sign_run": 0.17857142857142858,
+      "r_trend": -0.004882241405406219,
+      "dir_acc": 0.8518518518518519,
+      "r_acf_season": 0.2246681131513719,
+      "spike_ratio": 2.716889333035429
+    },
+    "model_card_dist": {
+      "AutoARIMA": 0.23248407643312102,
+      "Seasonal naive": 0.2197452229299363,
+      "LightGBM on lag features": 0.20063694267515925,
+      "Prophet": 0.17834394904458598,
+      "AutoETS": 0.16878980891719744
+    },
+    "context": null,
+    "image_path": "images/cluster_noise.png",
+    "report": null,
+    "expert": null
+  }
+]
