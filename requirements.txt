@@ -12,4 +12,5 @@ pydantic==2.14.1
 python-dotenv==1.2.4
 pyyaml==6.0.3
 pytest==9.1.1
-# kaggle  # optional, for the M5 download
+datasetsforecast==1.0.2  # M5 download (scripts/prepare_m5.py)
+# kaggle  # optional alternative M5 source
