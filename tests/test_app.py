@@ -451,3 +451,44 @@ def test_default_run_prefers_newest_non_mock_run(mock_runs, tmp_path, monkeypatc
 def test_default_run_is_mock_when_it_is_the_only_one(mock_runs, tmp_path, monkeypatch):
     at = run_app(make_runs(tmp_path, mock_runs, {"mock": 0}), monkeypatch)
     assert at.sidebar.selectbox[0].value == "mock" and at.sidebar.selectbox[0].options == ["mock (demo data)"]
+
+
+# ------------------------------------------------- compact cluster report, FAQ page, unlabelled runs
+
+def test_cluster_report_is_one_compact_markdown_block(mock_runs, monkeypatch):
+    at = run_app(mock_runs, monkeypatch, cluster_id=0)
+    assert not at.exception
+    blocks = [m.value for m in at.markdown if "**Evidence**" in m.value]
+    assert len(blocks) == 1  # one element, not one per bullet
+    block = blocks[0]
+    for heading in ("**Confidence:**", "**Likely causes**", "**Suggested fixes**", "**Metric to monitor:**"):
+        assert heading in block
+    assert "\n- " in block and "\n1. **" in block
+
+
+def test_sidebar_links_to_faq_page_with_paper_downloads(mock_runs, monkeypatch):
+    at = run_app(mock_runs, monkeypatch)
+    links = at.sidebar.get("page_link")
+    assert len(links) == 1 and "FAQ" in links[0].proto.label
+
+    at.switch_page("faq.py").run()
+    assert not at.exception
+    assert at.title[0].value.startswith("FAQ")
+    downloads = at.get("download_button")
+    assert {d.proto.label for d in downloads} == {"Download the paper (PDF)", "LaTeX source (.zip)"}
+    assert len(at.expander) >= 5
+    assert "Back to the atlas" in at.sidebar.get("page_link")[0].proto.label
+    assert not at.tabs or [t.label for t in at.tabs][0] != "Atlas"  # the atlas tabs are not rendered here
+
+
+def test_unlabelled_run_explains_why_there_is_no_evaluation(mock_runs, tmp_path, monkeypatch):
+    import pandas as pd
+
+    run_dir = copy_run(mock_runs, tmp_path)
+    (run_dir / "eval.json").unlink()
+    for name in ("windows.parquet", "data.parquet"):
+        df = pd.read_parquet(run_dir / name)
+        df.drop(columns=["true_label"], errors="ignore").to_parquet(run_dir / name)
+    at = run_app(tmp_path, monkeypatch)
+    assert not at.exception
+    assert any("no ground-truth labels" in i.value for i in at.info)

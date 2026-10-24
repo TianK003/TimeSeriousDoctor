@@ -1,6 +1,7 @@
 """Streamlit entry point.
 
-Atlas, Latent space, Cluster, Series and Evaluation tabs over a precomputed run folder (SPEC.md §7.12).
+Atlas, Latent space, Cluster, Series and Evaluation tabs over a precomputed run folder (SPEC.md §7.12),
+plus an FAQ page (`faq.py`, linked at the bottom of the sidebar) with the paper and the figures.
 Runs are produced by the CLI (`python scripts/run_atlas.py`, or `python scripts/make_mock_run.py`
 for a fake one); the app only reads them, except the expert review in the Cluster tab, which writes
 `expert_feedback.json` into the run folder. Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
@@ -22,7 +23,9 @@ import streamlit as st
 from atlas.cluster import embed_features, project_tsne
 from atlas.features import FEATURES
 from atlas.plots import atlas_scatter, cluster_name_map, latent_figure, series_figure, window_figure
-from atlas.schema import CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, RunResult, list_runs, load_run
+from atlas.schema import (
+    CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, GemmaClusterReport, RunResult, list_runs, load_run,
+)
 from atlas.taxonomy import load_taxonomy
 from atlas.ui_theme import apply_theme, plotly_template, theme_toggle
 
@@ -51,6 +54,16 @@ LATENT_MODES = {  # radio label -> mode
 LATENT_COLOR_LABELS = {"cluster": "Cluster", "true_label": "True label (synthetic data)", "series_id": "Series"}
 PIPELINE_COLOR = "#4c78a8"
 GEMMA_ALONE_COLOR = "#e45756"
+
+LAYOUT_CSS = """
+.st-key-cluster_report p, .st-key-cluster_report ul, .st-key-cluster_report ol { margin-bottom: 0.35rem; }
+.st-key-cluster_report li { margin-top: 0; margin-bottom: 0; }
+[data-testid="stSidebarContent"] { display: flex; flex-direction: column; }
+[data-testid="stSidebarUserContent"] { flex-grow: 1; display: flex; flex-direction: column; padding-bottom: 1rem; }
+[data-testid="stSidebarUserContent"] > div { flex-grow: 1; display: flex; flex-direction: column; }
+[data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] { flex-grow: 1; }
+[data-testid="stSidebarUserContent"] [data-testid="stLayoutWrapper"]:has(> .st-key-sidebar_footer) { margin-top: auto; }
+"""
 
 _MD_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|<>~$:&])")
 
@@ -233,6 +246,22 @@ def tab_atlas(run: RunResult, tpl: str) -> None:
 
 # -------------------------------------------------------------------------- Cluster
 
+def _one_line(text: object) -> str:
+    return md_escape(" ".join(str(text).split()))
+
+
+def report_markdown(r: GemmaClusterReport) -> str:
+    """Gemma's diagnosis as one markdown block; one st.markdown per item would add a full element gap each."""
+    lines = [f"**Confidence:** {r.confidence:.0%}", "", "**Evidence**"]
+    lines += [f"- {_one_line(item)}" for item in r.evidence]
+    lines += ["", "**Likely causes**"]
+    lines += [f"{k}. **{_one_line(c.cause)}** — {_one_line(c.why)}" for k, c in enumerate(r.likely_causes, start=1)]
+    lines += ["", "**Suggested fixes**"]
+    lines += [f"- {_one_line(fix)}" for fix in r.suggested_fixes]
+    lines += ["", f"**Metric to monitor:** {_one_line(r.metric_to_monitor)}"]
+    return "\n".join(lines)
+
+
 def _feature_table(c: ClusterInfo) -> pd.DataFrame:
     df = pd.DataFrame(
         {
@@ -363,17 +392,8 @@ def tab_cluster(run: RunResult, tpl: str) -> None:
             st.warning(NO_REPORT)
     else:
         st.markdown(md_escape(r.summary))
-        st.markdown(f"**Confidence:** {r.confidence:.0%}")
-        st.markdown("**Evidence**")
-        for item in r.evidence:
-            st.markdown(f"- {md_escape(item)}")
-        st.markdown("**Likely causes**")
-        for k, cause in enumerate(r.likely_causes, start=1):
-            st.markdown(f"{k}. **{md_escape(cause.cause)}** — {md_escape(cause.why)}")
-        st.markdown("**Suggested fixes**")
-        for fix in r.suggested_fixes:
-            st.markdown(f"- {md_escape(fix)}")
-        st.markdown(f"**Metric to monitor:** {md_escape(r.metric_to_monitor)}")
+        with st.container(key="cluster_report"):
+            st.markdown(report_markdown(r))
 
     expert_review(run, c, expert)
 
@@ -745,6 +765,12 @@ def _confusion_figure(run: RunResult, confusion: dict, tpl: str) -> go.Figure:
 
 def tab_evaluation(run: RunResult, tpl: str) -> None:
     ev = run.eval
+    if not ev and "true_label" not in run.windows.columns:
+        st.info(
+            "This run has no ground-truth labels (real data), so there is nothing to score. "
+            "Select the synthetic run `synth_features` to see the evaluation."
+        )
+        return
     if not ev:
         st.info("No eval.json for this run — run scripts/run_eval.py")
         return
@@ -764,15 +790,10 @@ def tab_evaluation(run: RunResult, tpl: str) -> None:
 
 # ------------------------------------------------------------------------------ main
 
-def main() -> None:
-    st.set_page_config(page_title="TimeSeriousDoctor", layout="wide")
+def atlas_page() -> None:
     st.title("TimeSeriousDoctor")
     st.caption("Failure atlas for forecasting models: where, how and why forecasts go wrong.")
-
-    st.sidebar.title("TimeSeriousDoctor")
-    dark = theme_toggle()
-    apply_theme(dark)
-    tpl = plotly_template(dark)
+    tpl = plotly_template(bool(st.session_state.get("dark_mode")))
 
     run = sidebar(list_runs(runs_dir()))
     if run is None:
@@ -791,6 +812,24 @@ def main() -> None:
             tab_series(run, tpl)
         with evaluation:
             tab_evaluation(run, tpl)
+
+
+def main() -> None:
+    st.set_page_config(page_title="TimeSeriousDoctor", layout="wide")
+    st.sidebar.title("TimeSeriousDoctor")
+    apply_theme(theme_toggle())
+    st.html(f"<style>{LAYOUT_CSS}</style>")
+
+    atlas = st.Page(atlas_page, title="Atlas", icon=":material/insights:", default=True)
+    faq = st.Page("faq.py", title="FAQ", icon=":material/help:", url_path="faq")
+    page = st.navigation([atlas, faq], position="hidden")
+    page.run()
+
+    with st.sidebar.container(key="sidebar_footer"):  # pushed to the bottom of the sidebar by LAYOUT_CSS
+        if page.url_path == faq.url_path:
+            st.page_link(atlas, label="Back to the atlas", icon=":material/arrow_back:")
+        else:
+            st.page_link(faq, label="FAQ: how it works + paper", icon=":material/help:")
 
     st.divider()
     st.caption(DISCLAIMER)

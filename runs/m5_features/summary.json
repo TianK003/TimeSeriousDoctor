@@ -1,0 +1,9 @@
+{
+  "headline": "8 recurring failure patterns across 1318 series",
+  "summary": "The largest patterns are: Dampened Seasonal Amplitude (1498 windows, 777 series); spiky peak-miss failure (1434 windows, 669 series); Lagging Seasonal Response (1200 windows, 645 series). (summary composed from the cluster reports)",
+  "actions": [
+    "Add or strengthen seasonal features (e.g., Fourier terms)",
+    "Add event or promotion calendar features to the model.",
+    "Use model differences or growth rates instead of levels"
+  ]
+}

@@ -1,0 +1,598 @@
+[
+  {
+    "cluster_id": 0,
+    "size": 1498,
+    "n_series": 777,
+    "medoid_window_ids": [
+      "FOODS_3_134|AutoETS#112",
+      "FOODS_2_035|AutoETS#140",
+      "HOUSEHOLD_1_439|AutoETS#14"
+    ],
+    "feature_median": {
+      "abs_err": 1.395204531591848,
+      "bias": 0.48089601092588635,
+      "best_lag": 1.0,
+      "lag_gain": 0.12245401098372588,
+      "slope_corr": 0.5238236151073836,
+      "peak_excess": 2.336305615235562,
+      "var_ratio": 0.5058518227314849,
+      "sign_run": 0.35714285714285715,
+      "r_trend": 0.03811645047623444,
+      "dir_acc": 0.5555555555555556,
+      "r_acf_season": 0.05960579204350609,
+      "spike_ratio": 2.6980989728778466
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.5881174899866488,
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.41188251001335113
+    },
+    "context": null,
+    "image_path": "images/cluster_0.png",
+    "report": {
+      "failure_type": "over_smoothing",
+      "name": "Dampened Seasonal Amplitude",
+      "summary": "The forecast is too flat and significantly under-represents the amplitude of regular seasonal swings.",
+      "evidence": [
+        "var_ratio is 0.51, indicating a significant loss of variance",
+        "peak_excess is 2.34, showing the forecast misses large peaks",
+        "r_acf_season is 0.06, suggesting error is not seasonally structured, but the forecast itself is flat"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Heavy regularization or insufficient seasonal terms",
+          "why": "The AutoETS and SeasonalNaive models are producing a forecast that tracks the mean level but fails to capture the full magnitude of the seasonal oscillations."
+        },
+        {
+          "cause": "Predicting the conditional mean under high uncertainty",
+          "why": "The forecast is effectively averaging out the spikes and swings to minimize error."
+        }
+      ],
+      "suggested_fixes": [
+        "Add or strengthen seasonal features (e.g., Fourier terms)",
+        "Reduce regularization in the ETS components",
+        "Check hierarchical reconciliation if applicable"
+      ],
+      "metric_to_monitor": "std(pred) / std(actual)",
+      "confidence": 0.85
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 1,
+    "size": 1434,
+    "n_series": 669,
+    "medoid_window_ids": [
+      "HOUSEHOLD_1_350|SeasonalNaive#140",
+      "FOODS_3_047|SeasonalNaive#126",
+      "FOODS_3_026|SeasonalNaive#140"
+    ],
+    "feature_median": {
+      "abs_err": 1.3766092217021093,
+      "bias": 2.3790493384824782e-17,
+      "best_lag": 1.0,
+      "lag_gain": 0.42420648560262486,
+      "slope_corr": 0.5139415802882192,
+      "peak_excess": 2.5603708134467515,
+      "var_ratio": 0.8941465635747482,
+      "sign_run": 0.17857142857142858,
+      "r_trend": 0.19929274523724716,
+      "dir_acc": 0.4074074074074074,
+      "r_acf_season": 0.3156867268773702,
+      "spike_ratio": 2.8230531490432096
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.9086471408647141,
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.09135285913528592
+    },
+    "context": null,
+    "image_path": "images/cluster_1.png",
+    "report": {
+      "failure_type": "other",
+      "name": "spiky peak-miss failure",
+      "summary": "The forecast is failing to capture the amplitude of short-term spikes, resulting in high peak excess error.",
+      "evidence": [
+        "peak_excess is 2.56, which is significantly higher than typical seasonal-naive error.",
+        "presence of large spikes in actuals (e.g., Example 1, Example 2) that the red predicted line is not following.",
+        "spike_ratio of 2.82 indicates error is concentrated in a few large, sparse spikes.",
+        "median residual is near zero, indicating no systematic bias or level shift.",
+        "best_lag is 0.5 (implied by lag_gain and slope_corr), suggesting the alignment is generally good but amplitude is the issue."
+      ],
+      "likely_causes": [
+        {
+          "cause": "Inadequate seasonal-naive or ETS components to capture sudden, non-periodic spikes.",
+          "why": "The models are predominantly SeasonalNaive (91%), which by definition only projects the previous period's value, making it unable to react to transient, non-seasonal spikes. SeasonalNaive is inherently limited in its amplitude-matching for irregular spikes. "
+        },
+        {
+          "cause": "Aggregation or smoothing of spike-related features.",
+          "why": "The high peak_excess and spike_ratio suggest the model is missing specific events or volatility that is not captured in the historical seasonal pattern. "
+        },
+        {
+          "cause": "Missing exogenous drivers for spikes.",
+          "why": "The models are using a single-series or simple seasonal-naive approach which lacks the context of promotions or events that cause spikes. "
+        }
+      ],
+      "suggested_fixes": [
+        "Add event or promotion calendar features to the model.",
+        "Use a quantile or peak-weighted loss function to penalize missing peaks.",
+        "Consider a ensemble-model approach that incorporates more reactive-to-level-changes models like AutoETS or more complex models like Prophet or XGBoost with exogenous features. "
+      ],
+      "metric_to_monitor": "error on top-decile actuals",
+      "confidence": 0.85
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 2,
+    "size": 1200,
+    "n_series": 645,
+    "medoid_window_ids": [
+      "FOODS_2_385|SeasonalNaive#126",
+      "HOUSEHOLD_1_245|SeasonalNaive#126",
+      "FOODS_2_267|SeasonalNaive#0"
+    ],
+    "feature_median": {
+      "abs_err": 1.380139425084662,
+      "bias": -0.2536835288595487,
+      "best_lag": 7.0,
+      "lag_gain": 0.20151839116289638,
+      "slope_corr": 0.273315999081192,
+      "peak_excess": 1.4076808727703727,
+      "var_ratio": 1.1898478958020478,
+      "sign_run": 0.21428571428571427,
+      "r_trend": -0.7122479540031956,
+      "dir_acc": 0.5555555555555556,
+      "r_acf_season": 0.38626348242340225,
+      "spike_ratio": 2.755729026059922
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.9166666666666666,
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.08333333333333333
+    },
+    "context": null,
+    "image_path": "images/cluster_2.png",
+    "report": {
+      "failure_type": "delayed_response",
+      "name": "Lagging Seasonal Response",
+      "summary": "The forecast follows the actuals but with a significant lag of approximately 7 steps.",
+      "evidence": [
+        "best_lag is 7.00, indicating a strong delay",
+        "lag_gain is 0.20, showing improvement with shift",
+        "median residual shows a slight downward trend (r_trend = -0.71)"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Over-reliance on seasonal lags",
+          "why": "The SeasonalNaive model relies heavily on the previous period's value, which can cause a lag if the pattern shifts slightly."
+        },
+        {
+          "cause": "Low refit frequency",
+          "why": "The 28-day refit cycle might be too slow to capture rapid changes in the signal's phase or level."
+        }
+      ],
+      "suggested_fixes": [
+        "Use model differences or growth rates instead of levels",
+        "Add leading indicators or exogenous features",
+        "Increase refit frequency"
+      ],
+      "metric_to_monitor": "Peak cross-correlation lag between forecast and actual",
+      "confidence": 0.85
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 3,
+    "size": 535,
+    "n_series": 348,
+    "medoid_window_ids": [
+      "FOODS_3_519|AutoETS#140",
+      "FOODS_1_018|SeasonalNaive#0",
+      "HOUSEHOLD_1_145|AutoETS#56"
+    ],
+    "feature_median": {
+      "abs_err": 1.4687035255008312,
+      "bias": 0.5542992371733683,
+      "best_lag": 0.0,
+      "lag_gain": 0.19863500194874253,
+      "slope_corr": 0.5341204577063202,
+      "peak_excess": 3.7097120550212868,
+      "var_ratio": 0.41536377525091334,
+      "sign_run": 0.25,
+      "r_trend": 1.1544051139770521,
+      "dir_acc": 0.5555555555555556,
+      "r_acf_season": 0.16545518189286507,
+      "spike_ratio": 4.404848237400288
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.5046728971962616,
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.4953271028037383
+    },
+    "context": null,
+    "image_path": "images/cluster_3.png",
+    "report": {
+      "failure_type": "over_smoothing",
+      "name": "amplitude suppression",
+      "summary": "The forecast is too flat and fails to capture the magnitude of seasonal swings and sudden spikes.",
+      "evidence": [
+        "var_ratio is 0.42, indicating significant flattening of the forecast compared to actuals.",
+        "peak_excess is 3.71, showing the forecast misses large spikes.",
+        "spike_ratio is 4.40, suggesting errors are concentrated in high-amplitude events.",
+        "Example 1 and 3 show the red prediction line staying within a narrow range while actuals fluctuate wildly."
+      ],
+      "likely_causes": [
+        {
+          "cause": "Predicting the conditional mean",
+          "why": "Under high uncertainty or volatility, models like AutoETS or SeasonalNaive may default to a smoothed average of expected values."
+        },
+        {
+          "cause": "Heavy regularization or insufficient seasonal terms",
+          "why": "The model parameters may be too constrained to allow for the full amplitude of the seasonal pattern to be captured."
+        }
+      ],
+      "suggested_fixes": [
+        "Add or strengthen seasonal features or Fourier terms.",
+        "Use quantile loss or peak-weighted loss to penalize missing spikes.",
+        "Reduce regularization in the AutoETS model."
+      ],
+      "metric_to_monitor": "std(pred) / std(actual)",
+      "confidence": 0.9
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 4,
+    "size": 297,
+    "n_series": 188,
+    "medoid_window_ids": [
+      "FOODS_3_435|AutoETS#56",
+      "FOODS_3_435|SeasonalNaive#56",
+      "HOUSEHOLD_1_458|SeasonalNaive#140"
+    ],
+    "feature_median": {
+      "abs_err": 3.40843368956075,
+      "bias": 2.804478997417615,
+      "best_lag": 0.0,
+      "lag_gain": 0.1348905452729694,
+      "slope_corr": 0.3499867911387376,
+      "peak_excess": 4.744284876905041,
+      "var_ratio": 0.1641962389411081,
+      "sign_run": 0.5357142857142857,
+      "r_trend": 4.943970907561548,
+      "dir_acc": 0.4444444444444444,
+      "r_acf_season": 0.22299675456219664,
+      "spike_ratio": 2.5504942884198
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.5286195286195287,
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.4713804713804714
+    },
+    "context": null,
+    "image_path": "images/cluster_4.png",
+    "report": {
+      "failure_type": "unadapted_shift",
+      "name": "Structural level shift",
+      "summary": "The forecast fails to adapt to a sudden, sustained increase in the actual values, resulting in persistent under-prediction.",
+      "evidence": [
+        "abs_err is significantly higher than average (3.41 vs 1.45)",
+        "bias is strongly positive (2.80) indicating persistent under-prediction",
+        "var_ratio is extremely low (0.16) showing the forecast is too flat compared to actuals",
+        "r_trend is very high (4.94) indicating error is growing as actuals rise"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Structural break in target level",
+          "why": "The actuals move to a new, higher regime that the models (SeasonalNaive, AutoETS) have not yet incorporated into their level component."
+        },
+        {
+          "cause": "Training window limitations",
+          "why": "The models are refit every 28 days, which may be too slow to capture a structural shift occurring mid-window."
+        },
+        {
+          "cause": "Tree-based or naive models cannot extrapolate beyond training range",
+          "why": "SeasonalNaive and AutoETS are level-based models that rely on historical averages or seasonal patterns which may not capture a sudden step-up in level if the training data is dominated by the old regime."
+        }
+      ],
+      "suggested_fixes": [
+        "Implement changepoint detection to trigger immediate refit",
+        "Use a recency-weighted training window to prioritize recent levels",
+        "Add a linear trend component or differencing to the target to help models capture level shifts"
+      ],
+      "metric_to_monitor": "Rolling bias",
+      "confidence": 0.9
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 5,
+    "size": 235,
+    "n_series": 155,
+    "medoid_window_ids": [
+      "FOODS_3_116|AutoETS#14",
+      "FOODS_2_153|AutoETS#98",
+      "FOODS_3_118|AutoETS#14"
+    ],
+    "feature_median": {
+      "abs_err": 3.0805675053322656,
+      "bias": 1.037247122856487,
+      "best_lag": 7.0,
+      "lag_gain": 0.2640697364217612,
+      "slope_corr": 0.33655488899467145,
+      "peak_excess": 5.339288184470152,
+      "var_ratio": 0.9678235497675203,
+      "sign_run": 0.39285714285714285,
+      "r_trend": -6.225086104394182,
+      "dir_acc": 0.48148148148148145,
+      "r_acf_season": 0.19208565514368658,
+      "spike_ratio": 2.6638031481876827
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.5659574468085107,
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.4340425531914894
+    },
+    "context": null,
+    "image_path": "images/cluster_5.png",
+    "report": {
+      "failure_type": "delayed_response",
+      "name": "Severe Lagging Response",
+      "summary": "The forecast follows the actuals but with a significant delay, causing large positive bias and error spikes.",
+      "evidence": [
+        "best_lag of 7.00 indicates a clear temporal shift",
+        "abs_err is significantly higher (3.08) than the rest of the anomalous windows (1.45)",
+        "median residual is consistently positive for the first half of the window before dropping",
+        "peak_excess of 5.34 shows the model misses the initial rise of new levels"
+      ],
+      "likely_causes": [
+        {
+          "cause": "Over-reliance on recent lags",
+          "why": "The high best_lag and lag_gain suggest the model is heavily weighted towards past values, causing it to trail the actuals."
+        },
+        {
+          "cause": "Low refit frequency",
+          "why": "The 28-day refit cycle may be too slow to catch rapid level shifts or trends in the data."
+        }
+      ],
+      "suggested_fixes": [
+        "Use model differences or growth rates instead of levels",
+        "Add leading indicators or exogenous features to anticipate shifts",
+        "Increase refit frequency to capture changes faster"
+      ],
+      "metric_to_monitor": "Peak cross-correlation lag between forecast and actual",
+      "confidence": 0.9
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 6,
+    "size": 191,
+    "n_series": 170,
+    "medoid_window_ids": [
+      "HOUSEHOLD_1_132|AutoETS#56",
+      "FOODS_3_499|SeasonalNaive#84",
+      "HOUSEHOLD_1_328|AutoETS#0"
+    ],
+    "feature_median": {
+      "abs_err": 2.2693263285000937,
+      "bias": -2.0779880420270507,
+      "best_lag": 0.0,
+      "lag_gain": 0.15254192493987817,
+      "slope_corr": 0.21732734658977304,
+      "peak_excess": 2.251663875056043,
+      "var_ratio": 0.5837840543796132,
+      "sign_run": 0.8571428571428571,
+      "r_trend": -1.5810600101871064,
+      "dir_acc": 0.48148148148148145,
+      "r_acf_season": 0.24747642265900296,
+      "spike_ratio": 1.8331942729988504
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.6544502617801047,
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.34554973821989526
+    },
+    "context": null,
+    "image_path": "images/cluster_6.png",
+    "report": {
+      "failure_type": "unadapted_shift",
+      "name": "Persistent Level Shift Under-prediction",
+      "summary": "The forecast fails to adapt to a structural break where the actuals drop to a new, lower level, resulting in a persistent negative bias.",
+      "evidence": [
+        "abs_err is 2.27, indicating high overall error severity.",
+        "bias is -2.08, showing a consistent tendency to over-predict (actuals are lower than forecast).",
+        "sign_run is 0.86, indicating a very long streak of same-direction errors.",
+        "var_ratio is 0.58, showing the forecast is less variable than the actuals."
+      ],
+      "likely_causes": [
+        {
+          "cause": "Structural break in the target series",
+          "why": "The actuals move to a new level that was not represented in the training data used for the model."
+        },
+        {
+          "cause": "Long training window or infrequent refit",
+          "why": "The AutoETS and SeasonalNaive models are refit every 28 days, which may be too slow to capture a structural shift occurring at the start of the window."
+        },
+        {
+          "cause": "Tree-based models or fixed-seasonal models cannot extrapolate beyond training range",
+          "why": "The model's previous level is anchored to the old regime, and the current actuals have dropped significantly below the levels seen in the recent context."
+        }
+      ],
+      "suggested_fixes": [
+        "Use a shorter or recency-weighted training window to allow for faster adaptation to level shifts.",
+        "Implement changepoint detection to trigger an immediate refit when a shift is detected.",
+        "Detrend or difference the target series before modeling to make the model more responsive to the level changes."
+      ],
+      "metric_to_monitor": "Rolling bias",
+      "confidence": 0.95
+    },
+    "expert": null
+  },
+  {
+    "cluster_id": 7,
+    "size": 110,
+    "n_series": 99,
+    "medoid_window_ids": [
+      "FOODS_3_276|AutoETS#98",
+      "HOUSEHOLD_1_162|SeasonalNaive#42",
+      "FOODS_1_043|SeasonalNaive#70"
+    ],
+    "feature_median": {
+      "abs_err": 1.7821534541194581,
+      "bias": -1.4941891731986574,
+      "best_lag": 6.0,
+      "lag_gain": 0.2514850307101889,
+      "slope_corr": 0.07920044848176394,
+      "peak_excess": -0.47662479457122264,
+      "var_ratio": 4.103982994646925,
+      "sign_run": 0.5,
+      "r_trend": 3.475201190076696,
+      "dir_acc": 0.4074074074074074,
+      "r_acf_season": 0.4191737120483019,
+      "spike_ratio": 2.782291618316169
+    },
+    "feature_median_all_gated": {
+      "abs_err": 1.447185962442449,
+      "bias": 0.06302010338930472,
+      "best_lag": 3.0,
+      "lag_gain": 0.22431667144275486,
+      "slope_corr": 0.4454302327229983,
+      "peak_excess": 2.3819827322859526,
+      "var_ratio": 0.7949463516734968,
+      "sign_run": 0.25,
+      "r_trend": -0.0378600544939139,
+      "dir_acc": 0.5185185185185185,
+      "r_acf_season": 0.23477846799532204,
+      "spike_ratio": 2.7999976611358868
+    },
+    "model_card_dist": {
+      "SeasonalNaive, rolling 28-day forecasts, refit every 28 days": 0.7272727272727273,
+      "AutoETS, rolling 28-day forecasts, refit every 28 days": 0.2727272727272727
+    },
+    "context": null,
+    "image_path": "images/cluster_7.png",
+    "report": {
+      "failure_type": "unadapted_shift",
+      "name": "Persistent level shift under-prediction",
+      "summary": "The forecast fails to adapt to a structural break where actuals drop to a new, lower level, resulting in persistent negative bias.",
+      "evidence": [
+        "abs_err is 1.78, indicating high error severity.",
+        "bias is -1.49, showing consistent over-prediction (actuals are lower than forecast).",
+        "var_ratio is 4.10, suggesting the forecast is extremely flat compared to actuals.",
+        "sign_run is 0.50, indicating a significant streak of same-direction errors.",
+        "r_trend is 3.48, showing the error is growing significantly over the window."
+      ],
+      "likely_causes": [
+        {
+          "cause": "Structural break in actuals not captured by training data",
+          "why": "The models (SeasonalNaive, AutoETS) are using a 28-day rolling window that likely contains too much historical data from the old regime, preventing them from the adapting to the new level."
+        },
+        {
+          "cause": "Tree-based models or fixed-parameter models cannot predict beyond the target range seen in training",
+          "why": "The models are stuck at the old level and cannot adjust to the new lower level seen in the actuals."
+        }
+      ],
+      "suggested_fixes": [
+        "Use a shorter or recency-weighted training window to allow faster adaptation to level shifts.",
+        "Implement changepoint detection to trigger a refit or model update when a structural break is detected.",
+        "Detrend or difference the target to make the model focus on changes rather than levels."
+      ],
+      "metric_to_monitor": "Rolling bias",
+      "confidence": 0.85
+    },
+    "expert": null
+  }
+]
