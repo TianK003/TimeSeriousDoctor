@@ -16,7 +16,7 @@
   \node[cbox] (res)  at (2.35,0)  {\textbf{Scaled residuals}\\\figsub{$\rS=(a-p)/\sigma_s$\\MASE scale}};
   \node[cbox] (win)  at (4.7,0)   {\textbf{Windows}\\\figsub{$L=28$, stride 14\\forecast rows only}};
   \node[cbox] (gate) at (7.05,0)  {\textbf{Anomaly gate}\\\figsub{abs.\ error, bias\\keep abnormal}};
-  \node[cbox] (emb)  at (9.4,0)   {\textbf{Embedding}\\\figsub{10 features, MOMENT,\\or both}};
+  \node[cbox] (emb)  at (9.4,0)   {\textbf{Embedding}\\\figsub{12 features, MOMENT,\\or both}};
   \node[cbox] (clu)  at (11.75,0) {\textbf{Clustering}\\\figsub{HDBSCAN $\to$ KMeans\\medoids, stats}};
   \node[cbox] (pan)  at (14.1,0)  {\textbf{Cluster panels}\\\figsub{PNG: 3 medoids\\+ residual overlay}};
   \foreach \a/\b in {data/res,res/win,win/gate,gate/emb,emb/clu,clu/pan}

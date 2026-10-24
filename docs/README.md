@@ -1,12 +1,12 @@
 # docs
 
-Technical description of TimeSeriousDoctor, written as a short research article (7 pages, two columns) with TikZ / PGFPlots figures.
+Technical description of TimeSeriousDoctor, written as a short research article (8 pages, two columns) with TikZ / PGFPlots figures.
 
 ```
 docs/
   README.md              this file
   paper/
-    main.tex             the article (sections: introduction, method, evaluation protocol, implementation, limitations)
+    main.tex             the article (sections: introduction, method, evaluation protocol and results, implementation, limitations)
     main.pdf             compiled output, committed so it can be read without LaTeX
     figures/
       fig1_architecture.tex        pipeline flow, "code measures / Gemma explains" split
@@ -32,20 +32,21 @@ Alternatively, upload the `docs/paper/` folder (`main.tex` and `figures/`) to [O
 
 ## What is in the paper, and what is not
 
-The paper describes the method as specified in `SPEC.md` (sections 1, 2, 6, 7.3 to 7.11 and 8): residual scaling, windows and gate, the ten failure features, the embedders, clustering, the Gemma 4 diagnosis, the expert knowledge loop, the evaluation protocol and the implementation. It also reports the Gemma smoke-test facts recorded in `NOTES.md` (P0.2).
+The paper describes the method as specified in `SPEC.md` (sections 1, 2, 6, 7.3 to 7.11 and 8): residual scaling, windows and gate, the twelve failure features, the embedders, clustering, the Gemma 4 diagnosis, the expert knowledge loop, the evaluation protocol and the implementation. It also reports the Gemma smoke-test facts recorded in `NOTES.md` (P0.2).
 
-It contains **no experimental results**. Section 3.4 has two template tables (`tab:compare`, `tab:cluster`) whose cells read `tbd`. When the final runs exist, fill them from `eval.json` (written by `scripts/run_eval.py`):
+Section 3.4 reports the results of the submitted runs. Tables `tab:compare` and `tab:cluster` come from `runs/synth_features/eval.json` (written by `scripts/run_eval.py`); the real-data paragraph describes `runs/m5_features`. If the runs are re-made, update the cells from these keys:
 
 | table cell | `eval.json` key |
 |---|---|
-| Pipeline / Gemma alone: Acc., Macro-F1 | `comparison.pipeline.accuracy`, `.macro_f1` / `comparison.gemma_alone.accuracy`, `.macro_f1` |
+| Accuracy, Macro-F1 | `comparison.pipeline.accuracy`, `.macro_f1` / `comparison.gemma_alone.accuracy`, `.macro_f1` |
+| per-class rows | `comparison.pipeline.per_class` / `comparison.gemma_alone.per_class` |
 | Gemma calls, sample | `comparison.pipeline.gemma_calls` / `comparison.gemma_alone.gemma_calls` |
-| Gemma calls, full data | `comparison.gemma_calls_full_dataset` (the table shows the symbols `k+1` and `N`) |
-| Gate F1 | `gate.f1` |
+| Gemma calls, all 400 | `comparison.gemma_calls_full_dataset` |
+| Gate Prec., Rec., F1 | `gate.precision`, `.recall`, `.f1` |
 | ARI, NMI, Purity, Noise | `clustering.ari`, `.nmi`, `.purity`, `.noise_share` |
 | Naming | `naming_accuracy` |
 
-Two statements in the paper describe optional parts of the system and should be re-checked against the final code before submission: the MOMENT embedder (`moment` / `both`) and the expert feedback loop (`expert_feedback.json`, few-shot examples).
+The MOMENT embedders (`moment` / `both`) are described but were not part of the submitted runs; the paper says so. The app's FAQ page (`faq.py`) offers `main.pdf` and a zip of the LaTeX sources for download.
 
 ## Figures
 
