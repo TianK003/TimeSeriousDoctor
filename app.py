@@ -777,10 +777,15 @@ def tab_evaluation(run: RunResult, tpl: str) -> None:
 
 @st.cache_resource
 def chat_client():
-    """One Gemma client for every chat question: throttled, answers cached on disk, no raw dumps."""
+    """One Gemma client for every chat question: throttled, answers cached on disk, no raw dumps.
+
+    Uses the dense fallback model: in real calls the default 26B-A4B model hit the server deadline (504) on most
+    of the long, free-text chat prompts, the 31B model answered them.
+    """
     from atlas.gemma import GemmaClient  # imported late: the rest of the app does not need the Gemini SDK
 
-    return GemmaClient(GemmaConfig(), raw_dir=None)
+    cfg = GemmaConfig()
+    return GemmaClient(cfg.model_copy(update={"model": cfg.fallback_model}), raw_dir=None)
 
 
 def _taxonomy_text() -> str:

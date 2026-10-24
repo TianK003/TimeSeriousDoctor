@@ -474,10 +474,10 @@ class FakeGemma:
     result: ChatAnswer | None = None
 
     def __init__(self, cfg, api_key=None, raw_dir=None, **kwargs):
-        self.raw_dir = raw_dir
+        self.cfg, self.raw_dir = cfg, raw_dir
 
     def generate(self, system, user, schema, image=None, tag="call"):
-        FakeGemma.calls.append({"system": system, "user": user, "schema": schema, "tag": tag, "raw_dir": self.raw_dir})
+        FakeGemma.calls.append({"system": system, "user": user, "schema": schema, "tag": tag, "raw_dir": self.raw_dir, "model": self.cfg.model})
         return FakeGemma.result
 
 
@@ -529,6 +529,7 @@ def test_example_question_click_renders_a_grounded_answer(mock_runs, monkeypatch
     assert not at.exception
     (call,) = fake_gemma.calls
     assert call["system"] == CHAT_SYSTEM and call["tag"] == "chat" and call["raw_dir"] is None
+    assert call["model"] == "gemma-4-31b-it"  # the dense fallback model: the default 26B one hit 504s on chat prompts
     assert "Question: What should we fix first?" in call["user"]
     assert "Run overview: 20 series" in call["user"] and "Forecast lags actuals by days" in call["user"]
     assert "Focus:" not in call["user"]  # whole-run scope

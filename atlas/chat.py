@@ -43,6 +43,15 @@ class ChatAnswer(BaseModel):
 
 # ---------------------------------------------------------------- small formatters
 
+def _t(text: object, limit: int = prompts.MAX_FIELD_CHARS) -> str:
+    """`clean_text` for the context, with double quotes turned into single quotes.
+
+    Gemma copies names from the facts into JSON strings; a `"` in the facts makes it escape quotes,
+    and with schema-constrained output it then degenerates into runs of `\\"'\\"'...` (seen in real calls).
+    """
+    return clean_text(str(text).replace('"', "'"), limit)
+
+
 def _num(value, digits: int = 2) -> str:
     try:
         v = float(value)
@@ -60,9 +69,9 @@ def _pct(value) -> str:
 
 
 def _first_sentence(text: str, limit: int = SUMMARY_CHARS) -> str:
-    flat = clean_text(text, 1000)
+    flat = _t(text, 1000)
     first = flat.split(". ")[0]
-    return clean_text(first if first.endswith(".") else first + ".", limit)
+    return _t(first if first.endswith(".") else first + ".", limit)
 
 
 def _cluster_label(cid: int) -> str:
@@ -77,7 +86,7 @@ def _cluster_ref(run: RunResult, cid: int) -> str:
         report = None
     if report is None:
         return _cluster_label(cid)
-    return f'{_cluster_label(cid)} ("{clean_text(report.name, 80)}")'
+    return f"{_cluster_label(cid)} ({_t(report.name, 80)})"
 
 
 def _expert_text(run: RunResult, cid: int) -> str:
@@ -87,9 +96,9 @@ def _expert_text(run: RunResult, cid: int) -> str:
         return ""
     text = f"expert {entry['status']}"
     if entry["status"] == "renamed" and entry.get("name"):
-        text += f' as "{clean_text(entry["name"], 80)}"'
-    note = clean_text(entry.get("note", ""))
-    return text + (f'; expert note: "{note}"' if note else "")
+        text += f" as {_t(entry['name'], 80)}"
+    note = _t(entry.get("note", ""))
+    return text + (f"; expert note: {note}" if note else "")
 
 
 # ---------------------------------------------------------------- context sections
@@ -102,7 +111,7 @@ def _headline(run: RunResult) -> str:
     return (
         f"Run overview: {run.data['series_id'].nunique()} series, {len(w)} windows of {window_len} forecast "
         f"steps, {int(w['gated'].sum())} anomalous, {n_clusters} clusters, {n_unclustered} anomalous windows "
-        f"left unclustered; embedder: {clean_text(run.config.get('embedder', 'unknown'), 40)}."
+        f"left unclustered; embedder: {_t(run.config.get('embedder', 'unknown'), 40)}."
     )
 
 
@@ -142,7 +151,7 @@ def _cluster_overview(run: RunResult) -> str:
         r = c.report
         if r is not None:
             line = (
-                f'- {label}: "{clean_text(r.name, 80)}" [{r.failure_type}], {c.size} windows from {c.n_series} '
+                f"- {label}: {_t(r.name, 80)} [{r.failure_type}], {c.size} windows from {c.n_series} "
                 f"series, confidence {_num(r.confidence)}. {_first_sentence(r.summary)}"
             )
         else:
@@ -166,7 +175,7 @@ def _model_summary(run: RunResult) -> str:
     stats.sort(key=lambda s: (-s[0], s[1]))
     lines = []
     for share, card, g, gated in stats[:MAX_MODEL_LINES]:
-        line = f"- {clean_text(card)}: {g['series_id'].nunique()} series, {len(gated)} of {len(g)} windows anomalous ({share:.0%})"
+        line = f"- {_t(card)}: {g['series_id'].nunique()} series, {len(gated)} of {len(g)} windows anomalous ({share:.0%})"
         if len(gated):
             top = Counter(int(c) for c in gated["cluster"]).most_common(2)
             line += "; main clusters: " + ", ".join(f"{_cluster_label(c)} ({n / len(gated):.0%})" for c, n in top)
@@ -182,10 +191,10 @@ def _report_block(run: RunResult, c: ClusterInfo) -> str:
         return "No Gemma report for this cluster."
 
     def item(text: str) -> str:
-        return clean_text(text, REPORT_ITEM_CHARS)
+        return _t(text, REPORT_ITEM_CHARS)
 
     lines = [
-        f'- name: "{clean_text(r.name, 80)}"; failure type: {r.failure_type}; confidence {_num(r.confidence)}',
+        f"- name: {_t(r.name, 80)}; failure type: {r.failure_type}; confidence {_num(r.confidence)}",
         f"- summary: {item(r.summary)}",
     ]
     lines += [f"- evidence: {item(e)}" for e in r.evidence]
@@ -210,7 +219,7 @@ def _cluster_focus(run: RunResult, cluster_id: int) -> str:
     if c.feature_median:
         names = [f for f in FEATURE_DOCS if f in c.feature_median] + [f for f in c.feature_median if f not in FEATURE_DOCS]
         rows = [
-            f"- {clean_text(n, 40)}: {_num(c.feature_median[n])} vs {_num(c.feature_median_all_gated.get(n))}"
+            f"- {_t(n, 40)}: {_num(c.feature_median[n])} vs {_num(c.feature_median_all_gated.get(n))}"
             for n in names
         ]
         parts.append("Median features, this cluster vs all anomalous windows (scaled units):\n" + "\n".join(rows))
@@ -222,8 +231,8 @@ def _cluster_focus(run: RunResult, cluster_id: int) -> str:
 def _series_focus(run: RunResult, series_id: str) -> str:
     w = run.windows[run.windows["series_id"] == series_id].sort_values("start_idx")
     cards = run.series_meta.loc[run.series_meta["series_id"] == series_id, "model_card"]
-    card = clean_text(cards.iloc[0]) if len(cards) else "unknown"
-    parts = ["Focus: one series.\n" + data_block([f"- series_id: {clean_text(series_id, 80)}", f"- model card: {card}"])]
+    card = _t(cards.iloc[0]) if len(cards) else "unknown"
+    parts = ["Focus: one series.\n" + data_block([f"- series_id: {_t(series_id, 80)}", f"- model card: {card}"])]
     if w.empty:
         parts.append("This series has no forecast windows in this run.")
         return "\n".join(parts)
@@ -258,7 +267,7 @@ def _series_focus(run: RunResult, series_id: str) -> str:
 
 def short_taxonomy(tax: dict) -> str:
     """One line per failure type (name and definition) for the context; the full taxonomy is too long."""
-    return "\n".join(f"- {name}: {clean_text(entry.get('definition', ''), 160)}" for name, entry in tax.items())
+    return "\n".join(f"- {name}: {_t(entry.get('definition', ''), 160)}" for name, entry in tax.items())
 
 
 # ---------------------------------------------------------------- public API
