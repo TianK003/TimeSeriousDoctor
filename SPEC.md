@@ -6,6 +6,7 @@
 ---
 
 ## 0. Instructions for Claude Code (read first)
+> **Time budget update:** we have **4 hours** of implementation, not 5. Build the MVP — cover the main cases, skip edge cases, and compress the schedule in §10 proportionally.
 
 You are helping a 3-person team build an MVP during a 5-hour hackathon. Rules:
 

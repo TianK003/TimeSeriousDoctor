@@ -1,0 +1,3 @@
+# Optional: MOMENT embeddings (SPEC section 7.6). Needs Python 3.11.
+momentfm
+torch
