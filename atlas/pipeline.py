@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from atlas.cluster import cluster_windows, embed_features, project_2d, summarize_clusters
 from atlas.config import Config
@@ -23,6 +24,8 @@ from atlas.residuals import compute_scaled_residuals, make_windows, window_matri
 from atlas.schema import (
     CLUSTER_NOISE,
     CLUSTER_NOT_GATED,
+    AtlasSummary,
+    ClusterInfo,
     RunResult,
     load_dataset,
     save_run,
@@ -53,6 +56,30 @@ def load_expert_examples(expert_from: Path) -> list[dict]:
     entries = [e for e in feedback.values() if isinstance(e, dict) and e.get("status") in EXPERT_STATUS_ORDER]
     entries.sort(key=lambda e: EXPERT_STATUS_ORDER[e["status"]])  # stable: file order within a status
     return entries[:MAX_EXPERT_EXAMPLES]
+
+
+FALLBACK_NOTE = "(summary composed from the cluster reports)"
+
+
+def fallback_summary(clusters: list[ClusterInfo], windows: pd.DataFrame) -> AtlasSummary | None:
+    """Executive summary built in code from the cluster reports, for when Gemma's summary call fails.
+
+    Headline: number of recurring failure patterns and series they touch. Summary: the 3 largest
+    clusters with Gemma's name, size and series count. Actions: the first suggested fix of each of
+    those clusters. The summary text says it was composed in code. None if no cluster has a report.
+    """
+    real = [c for c in clusters if c.cluster_id >= 0]
+    top = sorted((c for c in real if c.report is not None), key=lambda c: (-c.size, c.cluster_id))[:3]
+    if not top:
+        return None
+    in_clusters = windows[windows["cluster"] >= 0]
+    n_series = int(in_clusters["series_id"].nunique())
+    n = len(real)
+    headline = f"{n} recurring failure {'pattern' if n == 1 else 'patterns'} across {n_series} series"
+    largest = "; ".join(f"{c.report.name} ({c.size} windows, {c.n_series} series)" for c in top)
+    summary = f"The largest {'pattern is' if len(top) == 1 else 'patterns are'}: {largest}. {FALLBACK_NOTE}"
+    actions = [c.report.suggested_fixes[0] for c in top if c.report.suggested_fixes]
+    return AtlasSummary(headline=headline, summary=summary, actions=actions)
 
 
 def run_atlas(
@@ -139,6 +166,10 @@ def run_atlas(
                 c.report = explain_cluster(gc, c, image, n_gated, n_windows, system, FEATURE_DOCS, expert_examples)
             n_reports = sum(c.report is not None for c in clusters)
             summary = summarize_atlas(gc, clusters)
+            if summary is None:
+                summary = fallback_summary(clusters, windows)
+                if summary is not None:
+                    print("summary: Gemma gave no executive summary; composed one from the cluster reports")
 
     run = RunResult(
         name=run_name,

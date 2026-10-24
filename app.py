@@ -443,9 +443,15 @@ def latent_coords(run: RunResult, mode: str) -> np.ndarray | None:
     return out
 
 
+def tsne_stamp(path: Path) -> float:
+    """Newest mtime of the t-SNE inputs only, so saving an expert review or eval.json keeps the cached map."""
+    inputs = (Path(path) / "windows.parquet", Path(path) / "embeddings.npy")
+    return max((p.stat().st_mtime for p in inputs if p.is_file()), default=0.0)
+
+
 @st.cache_data(show_spinner="Computing the t-SNE map (about 15 s for thousands of windows) ...")
 def cached_tsne(_run: RunResult, path: str, mode: str, stamp: float) -> np.ndarray | None:
-    """t-SNE is slow: cached per run folder + mode (+ newest file mtime); `_run` itself is not hashed."""
+    """t-SNE is slow: cached per run folder + mode + `tsne_stamp`; `_run` itself is not hashed."""
     return latent_coords(_run, mode)
 
 
@@ -504,7 +510,7 @@ def tab_latent(run: RunResult, tpl: str) -> None:
         "error pattern sit close together. Click a dot to see that window."
     )
     mode_label = st.radio("Show", list(LATENT_MODES), horizontal=True, key="latent_mode")
-    coords = cached_tsne(run, str(run.path), LATENT_MODES[mode_label], run_stamp(run.path))
+    coords = cached_tsne(run, str(run.path), LATENT_MODES[mode_label], tsne_stamp(run.path))
     if coords is None:
         st.info("This run has no stored features or embeddings for this view.")
         return
@@ -568,7 +574,7 @@ def _series_order(run: RunResult) -> tuple[list[str], dict[str, int]]:
 
 def _series_latent(run: RunResult, series_id: str, tpl: str) -> None:
     """Small t-SNE map with this series' windows outlined."""
-    coords = cached_tsne(run, str(run.path), "all", run_stamp(run.path))
+    coords = cached_tsne(run, str(run.path), "all", tsne_stamp(run.path))
     if coords is None:
         return
     fig = latent_figure(run.windows, coords, cluster_names=_cluster_names(run), highlight_series=series_id, template=tpl)
@@ -662,6 +668,15 @@ def _headline(comp: dict, tpl: str) -> None:
     left.metric("TimeSeriousDoctor accuracy", _fmt(p_acc, pct=True), delta=delta)
     right.metric("Gemma alone accuracy", _fmt(g_acc, pct=True))
     st.caption(f"Macro-F1: {_fmt(pipe.get('macro_f1'))} vs {_fmt(alone.get('macro_f1'))}")
+    n_failed = alone.get("n_failed") or 0
+    n_unnamed = pipe.get("n_clusters_without_report") or 0
+    if n_failed:
+        st.caption(
+            f"{n_failed} of {n if n is not None else 'the'} Gemma-alone calls failed and are scored as wrong; "
+            "re-run scripts/run_eval.py to retry them before quoting these numbers."
+        )
+    if n_unnamed:
+        st.caption(f"{n_unnamed} pipeline cluster(s) have no Gemma report and are scored as `other` (wrong).")
 
     full = comp.get("gemma_calls_full_dataset") or {}
     c_sample, c_full = st.columns(2)

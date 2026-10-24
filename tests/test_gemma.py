@@ -191,7 +191,20 @@ def test_503_then_success_is_retried_with_backoff(tmp_path):
 
 def test_500_and_504_are_retried_too(tmp_path):
     gc, models, ft = make_gc(tmp_path, [api_error(500), api_error(504), REPORT_JSON])
-    assert gen(gc) is not None and ft.sleeps == [2, 4]
+    assert gen(gc) is not None and ft.sleeps == [2, 2]  # 500: backoff ladder; 504: its single retry
+
+
+def test_504_is_retried_at_most_once(tmp_path, capsys):
+    gc, models, ft = make_gc(tmp_path, [api_error(504), api_error(504), REPORT_JSON])
+    assert gen(gc) is None
+    assert len(models.calls) == 2 and ft.sleeps == [2]  # not the 2-4-8 ladder
+    assert "no result" in capsys.readouterr().out
+
+
+def test_504_then_503s_still_use_the_backoff_ladder(tmp_path):
+    gc, models, ft = make_gc(tmp_path, [api_error(504), api_error(503), api_error(503), api_error(429), REPORT_JSON])
+    assert gen(gc) is not None
+    assert len(models.calls) == 5 and ft.sleeps == [2, 2, 4, 8]
 
 
 def test_connection_timeout_is_retried_once(tmp_path):
