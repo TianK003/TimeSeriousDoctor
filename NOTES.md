@@ -40,3 +40,5 @@ Backend: Gemini Developer API (`genai.Client(api_key=key)`). In the note column 
 | gemma-4-31b-it | json_mode | OK | 14.2 | parsed keys=['answer', 'confidence']; raw fenced=False; tok=24/14/101 |
 | gemma-4-31b-it | response_schema | FAIL | 45.8 | ValidationError: Invalid JSON: trailing characters at line 5 column 1 (model output, not an API error) |
 | gemma-4-31b-it | combined | FAIL | 0.9 | ServerError: 500 INTERNAL. Internal error encountered. |
+- Executive summary (P1.7): Gemma returns 504 DEADLINE_EXCEEDED for the text-only AtlasSummary call on 2026-10-24 afternoon (also with thinking_level=MINIMAL, 2k-char prompt), while cluster calls succeed. The pipeline falls back to a summary composed in code from the cluster reports (marked in the text); `scripts/refresh_summary.py --run runs/<name>` retries Gemma later.
+- `pip-audit -r requirements.txt`: no known vulnerabilities (2026-10-24).
