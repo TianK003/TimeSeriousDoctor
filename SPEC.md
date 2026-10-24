@@ -1,4 +1,4 @@
-# Residual Atlas — MVP Spec (5-hour hackathon)
+# Residual Atlas (product name: TimeSeriousDoctor) — MVP Spec (4-hour hackathon)
 
 > Find the recurring ways forecasts fail across thousands of time series, group them automatically,
 > and have Gemma 4 explain each failure pattern like a forecasting expert would.
@@ -6,9 +6,10 @@
 ---
 
 ## 0. Instructions for Claude Code (read first)
-> **Time budget update:** we have **4 hours** of implementation, not 5. Build the MVP — cover the main cases, skip edge cases, and compress the schedule in §10 proportionally.
+> **Time budget:** **4 hours** of implementation (not 5). Build the MVP — cover the main cases, skip edge cases. §9 and §10 are already compressed to 4 h.
+> Two things are required for judging and are never cut: the **Gemma-alone comparison** (§7.11 — proof that our pipeline beats the naive "just ask Gemma" solution) and the **submission checklist + README template** (§15).
 
-You are helping a 3-person team build an MVP during a 5-hour hackathon. Rules:
+You are helping a 3-person team build an MVP during a 4-hour hackathon. Rules:
 
 1. **Strict priority order.** Build tasks in the order of Section 9 (P0 → P1 → P2). Never start a P1 task while a P0 task you own is unfinished.
 2. **Stay in your lane.** Each teammate runs their own Claude Code session and owns specific tasks and files (Section 9). Shared interfaces — `atlas/schema.py`, `taxonomy.yaml`, the run-folder format (Section 6) — change only when the team agrees.
@@ -16,7 +17,7 @@ You are helping a 3-person team build an MVP during a 5-hour hackathon. Rules:
 4. Python **3.11**, type hints, pydantic v2 for schemas, `pathlib`, config passed explicitly (no hidden globals).
 5. Every P0 module gets at least one fast `pytest`. Tests never call the network (mock Gemini).
 6. MOMENT/torch are **optional**: import them lazily inside `atlas/embed_moment.py`. Everything else must run without them installed.
-7. Secrets come from `.env` (`GEMINI_API_KEY`). Never hardcode or log keys.
+7. Secrets come from `.env` (`GEMMA4_API_KEY`, fallback `GEMINI_API_KEY`; read them with `atlas.config.get_api_key()`). Never hardcode or log keys.
 8. If this spec is ambiguous, pick the simplest option, add a one-line note to `NOTES.md`, and keep going.
 9. After finishing each task, stop and print a 3-line summary: what was built, how to run it, what's next.
 
@@ -34,13 +35,13 @@ You are helping a 3-person team build an MVP during a 5-hour hackathon. Rules:
 5. asks **Gemma 4** (image + numbers) to name and explain each pattern: what happens, likely causes, what to try, which metric to monitor,
 6. shows everything in a Streamlit "atlas".
 
-**Demo headline.** "2,000 forecasts in → N recurring failure patterns, each explained, with the affected series."
+**Demo headline.** "2,000 forecasts in → N recurring failure patterns, each explained, with the affected series — and on labeled data our pipeline identifies the failure correctly X % of the time vs Y % for Gemma alone looking at the same charts, using k instead of N Gemma calls."
 
 **Core design principle.** *Code measures, Gemma explains.* Every number in the UI comes from code. Gemma never computes numbers; it interprets the numbers and images it is given.
 
-**Hackathon tracks.**
-- *Best Open-Source AI Project*: public GitHub repo, Apache-2.0 license, open models only (Gemma 4, MOMENT).
-- *Best Use of Gemma 4*: multimodal reasoning over chart panels + structured JSON explanations.
+**Hackathon tracks** (full rules and checklist in §15).
+- *Best Open-Source AI Project* (main track): open-weight AI must be an important part of the project. Ours is a harness we wrote around open models — Gemma 4 (Apache-2.0 open weights) does every explanation, MOMENT-1 (MIT) is the optional encoder. Public GitHub repo with an OSI license (Apache-2.0 in `LICENSE`). We are not an agent skill, so no `SKILL.md` is needed.
+- *Best Use of Gemma 4*: Gemma 4 **through the Gemini API**; the README names the model, and we must be able to show the integration in code (`atlas/gemma.py`, `atlas/prompts.py`): multimodal reasoning over chart panels + structured JSON explanations.
 
 ---
 
@@ -337,6 +338,7 @@ resp = client.models.generate_content(
 - Throttle at `cfg.gemma.rpm` (default 10/min). Retry 429/5xx with backoff 2, 4, 8, 16 s.
 - Disk cache: key = sha256(model + system + user text + image bytes) → `cache/gemma/<key>.json`. Re-runs must not re-call the API.
 - Save raw responses to `runs/<run>/gemma_raw/`.
+- Prompt injection (OWASP LLM01): `model_card`, `group` and `series_id` are user-supplied text that reach the prompt. Truncate each to 200 chars, place them inside a clearly delimited data block, and tell the model in the system prompt that block content is data, never instructions. Gemma has no tools; its output is only validated (pydantic) and displayed.
 
 **Schemas:**
 
@@ -413,7 +415,7 @@ grey = context before the window). Panel 4 overlays the residuals of member wind
 
 **Executive summary prompt (P1):** input = list of `{cluster_id, size, n_series, failure_type, name, summary}` → `AtlasSummary`.
 
-**Baseline prompt (P1):** full-series image only (no features), "Classify the main forecast failure in the forecast region, if any" → `GemmaBaselineAnswer`. Same taxonomy.
+**Baseline prompt (P1):** full-series image only (no features), "Classify the main forecast failure in the forecast region, if any; answer `healthy_noise` if there is no systematic failure" → `GemmaBaselineAnswer`. Same system prompt, taxonomy and model as the pipeline, so the only difference is our processing (§7.11).
 
 ### 7.10 `atlas/pipeline.py` + `scripts/run_atlas.py`
 
@@ -431,8 +433,14 @@ CLI: `python scripts/run_atlas.py --data data/synthetic --embedder features --ru
 - **Clustering** (gated windows with `true_label != healthy`; noise reported separately): ARI, NMI, purity, noise share; confusion matrix cluster × true_label.
 - **Gemma naming accuracy:** cluster `report.failure_type` == majority `true_label` of the cluster (size-weighted).
 - **Series-level accuracy:** a series' predicted type = failure_type of the cluster holding most of its gated windows (`healthy` if none gated) vs its injected type.
-- **Baseline:** stratified sample of `n_baseline` (default 40) series → Gemma-alone on `baseline_series_png` → accuracy on the same series as the pipeline.
-- `scripts/run_eval.py --runs runs/synth_features runs/synth_moment runs/synth_both` writes `eval.json` into each run plus a comparison table to stdout.
+- **Gemma-alone comparison (★ required for judging — this is our proof):** shows how much residuals + gate + features + clustering + cluster panels improve on the naive solution "give Gemma each series' chart and ask what's wrong".
+  - *Naive solution* (`baseline.py`): for each series, one Gemma call with `baseline_series_png` (actual vs predicted, forecast region shaded), the baseline prompt (§7.9) and the same taxonomy and model. No residuals, no features, no clustering.
+  - *Sample:* stratified by injected type, `n_baseline` series (default 40, 8 per class); the pipeline is scored on **exactly the same series**. Run it on the whole dataset only if the rate limit allows.
+  - *Scoring:* series-level failure type vs injected type (rule above); `healthy_noise` counts as `healthy` for both methods.
+  - *Metrics:* accuracy, macro-F1, per-class accuracy; Gemma calls (pipeline: n_clusters + 1 for the **whole** dataset; naive: 1 per series, also extrapolated to the full dataset); wall time. Note in the README that only the pipeline localizes *where* in the series the failure happens (windows) and groups series by shared failure.
+  - *Output:* an `eval.json["comparison"]` block `{n_series, pipeline: {accuracy, macro_f1, per_class, gemma_calls}, gemma_alone: {...same...}, gemma_calls_full_dataset: {pipeline, gemma_alone}}`.
+  - `baseline.py` only needs `gemma.py`, `plots.baseline_series_png` and the synthetic dataset — B can build it as soon as P0.12 works, before the pipeline is done.
+- `scripts/run_eval.py --runs runs/synth_features runs/synth_moment runs/synth_both` writes `eval.json` into each run and prints a markdown table (pipeline vs Gemma-alone first, then clustering metrics per embedder) that is pasted unchanged into the README "Proof" section (§15.3).
 
 ### 7.12 `app.py` — Streamlit UI
 
@@ -444,7 +452,9 @@ Wide layout, `st.cache_data` around `load_run`. Sidebar: run selector (subfolder
 
 **Tab 3 — Series (P1):** series selector (sorted by # anomalous windows); `series_figure`; breakdown of the series' windows by cluster.
 
-**Tab 4 — Evaluation (P1, only if `eval.json` exists):** metrics per embedder; confusion-matrix heatmap; Gemma-alone vs pipeline accuracy bars.
+**Tab 4 — Evaluation (P1, only if `eval.json` exists):** on top, the headline comparison "Pipeline X % vs Gemma-alone Y % accuracy, k vs N Gemma calls" with accuracy bars (overall + per class); below, metrics per embedder and the confusion-matrix heatmap.
+
+**Failure states (all tabs):** no runs found, missing files, or a cluster with `report=None` → a clear `st.info`/`st.warning` message ("explanation unavailable — Gemma call failed"), never a blank page or a stack trace. Render Gemma text as plain text (no raw HTML). Footer disclaimer: "Automated diagnostics — suggestions to investigate, not guarantees; verify before changing production models."
 
 No "run analysis" button before P2: runs are produced by the CLI. Load only what a tab needs.
 
@@ -522,7 +532,7 @@ healthy_noise:
 
 Rules: finish P0 before any P1. Within each level, work top to bottom. ★ = needed for the pitch. Time estimates assume Claude Code does most of the typing.
 
-### P0 — vertical slice on synthetic data (target: done by 2:15)
+### P0 — vertical slice on synthetic data (target: done by 1:45)
 
 | ID | Task | Owner | Est | Depends on | Done when |
 |---|---|---|---|---|---|
@@ -541,25 +551,27 @@ Rules: finish P0 before any P1. Within each level, work top to bottom. ★ = nee
 | P0.12 | `gemma.py` (throttle, retry, cache, validation) + `prompts.py` + taxonomy rendering | B | 40m | P0.2, P0.3 | a mock cluster returns a valid `GemmaClusterReport` |
 | P0.13 | Streamlit Atlas tab + Cluster tab on the mock run | B | 45m | P0.5 | cards and reports render |
 | P0.14 | `pipeline.py` + `run_atlas.py`: wire everything incl. images and Gemma | A (+B) | 20m | P0.9, P0.11, P0.12 | full `runs/synth_features/` with reports |
-| ✅ | **CHECKPOINT 1 (2:15):** the app shows real clusters from synthetic data with Gemma explanations | All | | | |
+| ✅ | **CHECKPOINT 1 (1:45):** the app shows real clusters from synthetic data with Gemma explanations | All | | | |
 
-### P1 — makes it a strong project (2:15–3:30)
+### P1 — makes it a strong project (1:45–2:50)
+
+**P1.3, P1.4 and P1.6 are the judges' proof (pipeline vs Gemma alone) — each owner does them before any other P1 task.** B may start P1.4 as soon as P0.12 works (it doesn't need the pipeline).
 
 | ID | Task | Owner | Est | Depends on | Done when |
 |---|---|---|---|---|---|
+| P1.3 ★★ | `evaluate.py` + `run_eval.py`, including the comparison block (§7.11) | C | 30m | P0.14 | `eval.json` + markdown comparison table |
+| P1.4 ★★ | `baseline.py` (Gemma-alone, §7.11) integrated into eval | B | 30m | P0.12, `baseline_series_png` | `eval.json["comparison"]` has both methods on the same series |
+| P1.6 ★★ | Evaluation tab with the headline comparison | B | 20m | P1.3 | comparison bars + confusion matrix |
 | P1.1 ★ | M5 prep (Section 7.2): aggregate, statsforecast CV, write contract | C | 40m | P0.0 | `data/m5/` with ≥ 600 series |
 | P1.2 ★ | `embed_moment.py` + `moment` / `both` embedder modes + cache | A | 45m | P0.14 | `runs/synth_moment/`, `runs/synth_both/` |
-| P1.3 ★ | `evaluate.py` + `run_eval.py` | C | 30m | P0.14 | `eval.json` + comparison table |
-| P1.4 ★ | `baseline.py` (Gemma-alone) integrated into eval | B | 30m | P0.12, P1.3 | baseline accuracy in `eval.json` |
 | P1.5 | Series tab | B | 25m | P0.13 | chart with cluster-colored windows |
-| P1.6 | Evaluation tab | B | 20m | P1.3 | table + confusion matrix + accuracy bars |
 | P1.7 | Executive summary (one Gemma call) shown on the Atlas tab | B | 15m | P0.12 | `summary.json` rendered |
 | P1.8 | 2D projection + Atlas scatter | A | 15m | P0.9 | scatter renders |
 | P1.9 ★ | Run the atlas on M5 (quantile gate); sanity-check clusters with the expert | A + C | 20m | P1.1, P0.14 | `runs/m5_<embedder>/` looks sensible |
 | P1.10 | Expert refines taxonomy thresholds/causes using real clusters; re-run Gemma | C | 15m | P1.9 | updated reports |
-| ✅ | **CHECKPOINT 2 (3:30):** decide MOMENT in/out and M5 in/out; freeze the demo embedder | All | | | |
+| ✅ | **CHECKPOINT 2 (2:50):** comparison numbers exist; decide MOMENT in/out and M5 in/out; freeze the demo embedder | All | | | |
 
-### P2 — only if time remains (3:30–4:15, pick at most 2)
+### P2 — only if time remains (2:50–3:30, pick at most 1)
 
 | ID | Task | Owner | Est | Why it matters |
 |---|---|---|---|---|
@@ -570,16 +582,18 @@ Rules: finish P0 before any P1. Within each level, work top to bottom. ★ = nee
 | P2.5 | Upload CSV in UI + run a features-only analysis live | B | 30m | Interactive demo |
 | P2.6 | Local Gemma backend (OpenAI-compatible endpoint, e.g. Ollama) behind a config flag | B | 30m | Privacy / open-source story |
 
-Recommended picks: **P2.1 + P2.2**. Swap in P2.3 if synthetic ARI is suspiciously close to 1.
+Recommended pick: **P2.2** (the "adds expert knowledge" story), else P2.1. Swap in P2.3 if synthetic ARI is suspiciously close to 1.
 
-### Final block (4:15–5:00) — All
+### Final block (3:30–4:00) — All
 
 | ID | Task | Owner |
 |---|---|---|
-| F.1 | **Feature freeze at 4:15.** Precompute demo runs: `synth_<best>`, `m5_<best>`; check every tab on them | A |
-| F.2 | README: problem, architecture (mermaid from Section 2), quick start, results table from `eval.json`, screenshots, models used, license | B |
+| F.1 | **Feature freeze at 3:30.** Precompute demo runs: `synth_<best>`, `m5_<best>`; check every tab on them | A |
+| F.2 | README following the template in §15.3 exactly (incl. the Proof table from `eval.json`, mermaid from Section 2, screenshots) | B |
+| F.5 | Repository checklist (§15.2): every item checked and ticked in the PR/commit message; `pip-audit -r requirements.txt` clean | A |
 | F.3 | Backup demo video (2–3 min screen recording) | B |
 | F.4 | Pitch rehearsal: C presents; A and B cover technical Q&A | C |
+| F.6 | Submit through OrganizerHQ; open the repo link in an incognito window | C |
 
 ---
 
@@ -588,11 +602,11 @@ Recommended picks: **P2.1 + P2.2**. Swap in P2.3 if synthetic ARI is suspiciousl
 | Time | What | Gate |
 |---|---|---|
 | 0:00–0:20 | P0.0–P0.3 (skeleton pushed first) | Skeleton on main |
-| 0:20–1:45 | P0 in parallel (A engine, B Gemma + UI on mock run, C data + plots) | |
-| 1:45–2:15 | Integration (P0.14) | **Checkpoint 1** |
-| 2:15–3:30 | P1 | **Checkpoint 2** |
-| 3:30–4:15 | P2 (max 2 items) | |
-| 4:15–5:00 | Freeze, README, video, rehearsal | Submit |
+| 0:20–1:25 | P0 in parallel (A engine, B Gemma + UI on mock run, C data + plots) | |
+| 1:25–1:45 | Integration (P0.14) | **Checkpoint 1** |
+| 1:45–2:50 | P1 — comparison (P1.3, P1.4, P1.6) first | **Checkpoint 2** |
+| 2:50–3:30 | P2 (max 1 item) | |
+| 3:30–4:00 | Freeze, repository checklist, README, video, rehearsal, submit | Submit |
 
 **Git workflow.** Trunk-based: small commits, pull often. Files are owned by one person, so conflicts should be rare. Shared files (`schema.py`, `config.py` → A; `taxonomy.yaml` → C) change only after telling the team.
 
@@ -602,8 +616,9 @@ Recommended picks: **P2.1 + P2.2**. Swap in P2.3 if synthetic ARI is suspiciousl
 
 | Trigger | Action |
 |---|---|
-| Checkpoint 1 missed at 2:15 | Whole team on integration. Drop MOMENT entirely. |
-| momentfm won't install/run within 20 min, or P1.2 not done by 3:00 | Ship features-only; describe the encoder as pluggable. |
+| Checkpoint 1 missed at 1:45 | Whole team on integration. Drop MOMENT entirely. |
+| momentfm won't install/run within 20 min, or P1.2 not done by 2:30 | Ship features-only; describe the encoder as pluggable. |
+| Comparison not done by 2:50 | Everyone else pauses P1 and helps; worst case run `baseline.py` on 20 series and put the table in the README by hand. |
 | HDBSCAN gives < 2 clusters or > 60% noise | Automatic KMeans fallback; then try `window_len` 14/42/56 and `min_cluster_size`. |
 | Clusters don't separate injected types (ARI < 0.3) | Check features on single examples (tests) first; try longer windows; report honest numbers. |
 | Gemini API errors / 429 / slow | Rely on cache + throttle; switch 26b ↔ 31b; demo from cached runs. |
@@ -657,5 +672,49 @@ Stop after each task with a 3-line summary.
 1. **Problem (C, 30 s):** "Aggregate metrics say this model is fine." Show a forecast that lags behind the truth after the cutoff. "Experts catch this by eye — not across thousands of series."
 2. **Atlas on M5 (B, 60 s):** 2,000 forecasts in → N failure patterns. Open the biggest cluster: Gemma's name, evidence, likely causes, fixes, metric to monitor. Jump to one affected series.
 3. **Hidden regime (if P2.1 built, 20 s):** "This cluster sits mostly in holiday weeks."
-4. **Proof (A, 45 s):** synthetic evaluation — clusters recover injected failures (ARI), Gemma names them correctly (x/y), and the pipeline beats Gemma-alone on charts.
+4. **Proof (A, 45 s):** "Same model, same charts, same taxonomy — Gemma alone gets Y %, Gemma inside our pipeline gets X %, with k instead of N calls." Then: clusters recover injected failures (ARI), Gemma names them correctly (x/y).
 5. **Open source (A, 15 s):** Apache-2.0, Gemma 4 + MOMENT from Hugging Face, runs on your own data.
+
+---
+
+## 15. Submission requirements (judging) — do not skip
+
+Keep the last 30 minutes (F.2, F.5, F.6) for this. Without the **Required** items the project is not judged.
+
+### 15.1 Track rules
+
+| Track | Rule | How we meet it |
+|---|---|---|
+| Best Open-Source AI Project | Open-source / open-weight AI is an important part of the project (product on an open-weight model, agent skill, or own harness around a model) | Our own harness around open-weight Gemma 4 (Apache-2.0); optional MOMENT-1 (MIT) encoder |
+| | Public GitHub repo with an OSI license | `LICENSE` = Apache-2.0; repo `TianK003/TimeSeriousDoctor` must be public |
+| | Agent skills need `SKILL.md` | Not an agent skill → not needed |
+| Best Use of Gemma 4 | Use Gemma 4 through the Gemini API | `google-genai`, Gemini Developer API (see `NOTES.md` P0.2) |
+| | Name the model in the README; show the integration in code | README "Model and license" section names `gemma-4-26b-a4b-it` (fallback `gemma-4-31b-it`); demo `atlas/gemma.py` + `atlas/prompts.py` (multimodal call, JSON schema, cache, throttle) |
+
+### 15.2 Repository checklist (F.5)
+
+Required:
+- [ ] Repository is public — the link opens in an incognito window.
+- [ ] `LICENSE` in the root with an OSI license (Apache-2.0).
+- [ ] README explains how to run the project.
+- [ ] README names the model and links to its license / terms.
+- [ ] Submitted through OrganizerHQ (F.6).
+
+Basic hygiene:
+- [ ] Keys only in `.env`; `.env` is in `.gitignore`; `.env.example` has no real values; no key in the commit history (`git log -p --all | grep <key prefix>` is empty). Streamlit runs server-side, so no key reaches the browser. If a key ever leaked: revoke it and issue a new one.
+- [ ] Tests and examples use only anonymized data: synthetic data + public M5 (anonymized product ids), no personal data.
+- [ ] Dependency versions pinned in `requirements.txt` (`==`); `pip-audit -r requirements.txt` reports no critical vulnerabilities.
+- [ ] If the API fails, the user sees a clear message, not a blank screen (§7.12 failure states; the pipeline stores `report=None` and keeps going). Rate limit: the engine throttles Gemma at `gemma.rpm`; any public demo serves precomputed runs only, so visitors never trigger Gemma calls.
+- [ ] Disclaimer in the app footer and README: automated diagnostics, not guarantees; not financial advice.
+- [ ] Prompt injection considered: user-supplied `model_card` / `group` / `series_id` are truncated and passed as delimited data (§7.9); Gemma has no tools; output is schema-validated and rendered as plain text.
+- [ ] No dangerous agent actions: Gemma has no tools; the only write the UI does is `expert_feedback.json`, after an explicit button click.
+
+### 15.3 README template (F.2)
+
+The final README has exactly these sections, in this order:
+1. **What it is and who it is for** — forecasting / data-science teams with hundreds to thousands of series; the problem aggregate metrics hide; "code measures, Gemma explains".
+2. **How to run it** — quick start (venv, `pip install -r requirements.txt`, `.env`), the demo commands (`make_synthetic` → `run_atlas` → `run_eval` → `streamlit run app.py`), and that precomputed demo runs are included if we commit them.
+3. **Expertise: what knowledge we built in and where it comes from** — `taxonomy.yaml` (failure definitions, signatures, causes, fixes, metrics to monitor, written and refined by our time-series expert from forecasting practice); the handcrafted failure features (§7.5) that encode how experts recognize each failure; MASE-style scaling (Hyndman & Koehler, 2006); the expert feedback loop (P2.2) if built.
+4. **The model and its license** — Gemma 4 `gemma-4-26b-a4b-it` (fallback `gemma-4-31b-it`) via the Gemini API, Apache-2.0 open weights (link: Google Open Source Blog announcement / model card), plus the Gemini API terms of service; MOMENT-1 (MIT, Hugging Face model card) if used; our code Apache-2.0.
+5. **Proof that it beats the same model without it** — the `run_eval.py` markdown table: pipeline vs Gemma-alone on the same series (accuracy, macro-F1, per class, Gemma calls), then clustering metrics; one sentence on what the pipeline adds that Gemma alone cannot (localized windows, grouping across series).
+Then: architecture (mermaid from §2), screenshots, disclaimer, license.

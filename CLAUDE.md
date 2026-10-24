@@ -22,6 +22,9 @@ SPEC.md calls the project "Residual Atlas", and the Python package is `atlas`. K
 ## Working in this repo (hackathon rules)
 
 - `SPEC.md` is the binding spec. Build in its §9 priority order (P0 → P1 → P2). The **time budget is 4 h**, so build the MVP and skip edge cases.
+- Two things are required for judging and must never be cut:
+  - The **Gemma-alone comparison** (SPEC §7.11). Same model, taxonomy and series, but Gemma alone only sees a full-series chart. It proves the pipeline beats the naive "just ask Gemma" approach.
+  - The **submission checklist + README template** (SPEC §15). The README sections are fixed by the judging template.
 - Three people each run their own Claude Code session. Each person owns specific tasks and files: A = engine, B = Gemma + app, C = data + truth. Every stub module's docstring names its owner, task ID and spec section (e.g. `Owner: A. Task: P0.6. Spec: SPEC.md §7.3.`). Stay inside your owner's files.
 - The shared interfaces are `atlas/schema.py`, `atlas/config.py`, `taxonomy.yaml` and the run-folder format. Change them only when the team agrees.
 - If the spec is ambiguous, pick the simplest option and add a one-line note to `NOTES.md`. `NOTES.md` also records verified facts about calling Gemma (backend, model ids, system-instruction / JSON / `response_schema` support from `scripts/smoke_gemini.py`). Check it before touching `atlas/gemma.py`.
