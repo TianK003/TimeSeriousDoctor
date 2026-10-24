@@ -77,7 +77,7 @@ dataset folder ─► residuals ─► windows ─► gate ─► features / MOM
   - Calls are throttled to `cfg.gemma.rpm` and cached on disk by sha256(model + system + user text + image bytes) under `cache/gemma/`. Re-runs must never re-call the API.
   - Raw responses go to `<run>/gemma_raw/`. Output is validated against the pydantic models in `schema.py`, with one retry that includes the validation error.
 - **Config:** `atlas.config.Config` (pydantic) holds every default, mirrored in `config.default.yaml`. Pass it explicitly; there are no globals. Get the API key with `atlas.config.get_api_key()`, which checks `GEMMA4_API_KEY` first and falls back to `GEMINI_API_KEY`. The key is loaded from `.env`.
-- **Labels and evaluation:** synthetic data carries a row-level `true_label`. A window's label is the failure type when at least 50% of its rows carry it, otherwise `healthy`. The `taxonomy.yaml` keys double as Gemma's allowed `failure_type` values (plus `other`) and as the evaluation labels.
+- **Labels and evaluation:** synthetic data carries a row-level `true_label`. A window's label is the failure type when at least 50% of its rows carry it, otherwise `healthy`. The `taxonomy.yaml` keys plus `other` are Gemma's allowed `failure_type` values. Synthetic labels say `healthy` where Gemma says `healthy_noise`, and evaluation scores the two as equal.
 
 ## Testing
 

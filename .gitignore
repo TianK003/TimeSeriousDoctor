@@ -10,9 +10,9 @@ __pycache__/
 .ipynb_checkpoints/
 
 # generated artifacts (see SPEC.md §4)
-data/
-runs/
-cache/
+/data/
+/runs/
+/cache/
 
 # tooling scratch
 .superpowers/
