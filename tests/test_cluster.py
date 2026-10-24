@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from atlas import cluster
 from atlas.cluster import cluster_windows, embed_features, project_2d, summarize_clusters
 from atlas.schema import CLUSTER_NOISE
 
@@ -161,3 +162,44 @@ def test_hdbscan_always_too_many_clusters_uses_kmeans_with_max_clusters(monkeypa
     X = np.random.default_rng(7).normal(size=(100, 3))
     labels = cl.cluster_windows(X, min_cluster_size=5, max_clusters=4)
     assert _n(labels) == 4
+
+
+def test_embed_features_winsorizes_heavy_tails():
+    rng = np.random.default_rng(6)
+    x = rng.normal(size=300)
+    x[:3] = [1e6, -5e5, 3e4]  # a few outliers hundreds of IQRs away
+    df = pd.DataFrame({"f1": x, "f2": rng.normal(size=300), "f3": rng.exponential(size=300)})
+    E = embed_features(df, FEATS)
+    assert np.abs(E).max() <= 5.0 + 1e-6
+    assert E[0, 0] == 5.0 and E[1, 0] == -5.0       # clipped, not dropped
+    assert E[3:, 0].std() > 0.5                    # the bulk keeps its spread (not squashed by the outliers)
+
+
+def _share(labels):
+    return np.bincount(labels[labels >= 0]).max() / len(labels)
+
+
+def test_kmeans_silhouette_skips_a_giant_cluster_solution(monkeypatch):
+    rng = np.random.default_rng(7)
+    giant = rng.normal(0, 1, size=(600, 2))
+    far = [rng.normal(c, 0.2, size=(15, 2)) for c in ([40.0, 0.0], [0.0, 40.0], [-40.0, -40.0])]
+    X = np.vstack([giant, *far])
+
+    labels = cluster_windows(X, min_cluster_size=20)
+    assert _n(labels) >= 4 and _share(labels) <= 0.5
+
+    # without the cap the best silhouette is the useless 93 % cluster plus the three tiny ones
+    monkeypatch.setattr(cluster, "MAX_LARGEST_SHARE", 1.0)
+    assert _share(cluster_windows(X, min_cluster_size=20)) > 0.9
+
+
+def test_hdbscan_result_with_a_giant_cluster_falls_back_to_kmeans(monkeypatch):
+    rng = np.random.default_rng(8)
+    X = np.vstack([rng.normal(0, 1, size=(400, 3)), rng.normal(15, 0.3, size=(30, 3))])
+
+    labels = cluster_windows(X, min_cluster_size=20)
+    assert _n(labels) >= 3 and _share(labels) <= 0.5
+    assert not (labels == CLUSTER_NOISE).any()
+
+    monkeypatch.setattr(cluster, "MAX_LARGEST_SHARE", 1.0)  # HDBSCAN's 93 % + 7 % answer is accepted again
+    assert _share(cluster_windows(X, min_cluster_size=20)) > 0.9

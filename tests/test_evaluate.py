@@ -216,6 +216,39 @@ def test_compare_scores_only_the_sample_and_missing_counts_wrong():
     assert out["gemma_alone"]["gemma_calls"] == 2
 
 
+def test_compare_records_failed_baseline_calls_and_unnamed_clusters():
+    truth = {"a": "healthy", "b": "missed_peak", "c": "missed_peak"}
+    baseline = {"a": "healthy", "b": None}  # b failed, c has no entry at all
+    out = compare(truth, {"a": "healthy", "b": "missed_peak", "c": "other"}, baseline, ["a", "b", "c"], 3, 10,
+                  n_clusters_without_report=1)
+    assert out["gemma_alone"]["n_failed"] == 2
+    assert out["gemma_alone"]["accuracy"] == pytest.approx(1 / 3)  # failures still score wrong
+    assert out["pipeline"]["n_clusters_without_report"] == 1
+    clean = compare(truth, {}, {"a": "healthy", "b": "missed_peak", "c": "missed_peak"}, ["a", "b", "c"], 3, 10)
+    assert clean["gemma_alone"]["n_failed"] == 0 and clean["pipeline"]["n_clusters_without_report"] == 0
+
+
+def test_markdown_table_footnotes_failures_only_when_there_are_any():
+    ev = evaluate_run(make_run())
+    truth = {"a": "healthy", "b": "missed_peak"}
+    bad = copy.deepcopy(ev)
+    bad["comparison"] = compare(truth, {"a": "healthy", "b": "other"}, {"a": "healthy", "b": None},
+                                ["a", "b"], 5, 40, n_clusters_without_report=2)
+    md = markdown_table([bad])
+    assert "Note: 1 of 2 Gemma-alone calls failed and are scored as wrong" in md
+    assert "Note: 2 pipeline cluster(s) have no Gemma report" in md
+    assert md.index("| Gemma alone |") < md.index("Note: 1 of 2") < md.index("### Clustering metrics")
+
+    good = copy.deepcopy(ev)
+    good["comparison"] = compare(truth, {"a": "healthy", "b": "missed_peak"},
+                                 {"a": "healthy", "b": "missed_peak"}, ["a", "b"], 5, 40)
+    assert "Note:" not in markdown_table([good])
+    old = copy.deepcopy(ev)  # an eval.json written before these fields existed
+    old["comparison"] = good["comparison"]
+    del old["comparison"]["gemma_alone"]["n_failed"], old["comparison"]["pipeline"]["n_clusters_without_report"]
+    assert "Note:" not in markdown_table([old])
+
+
 def test_markdown_table_has_both_tables():
     ev = evaluate_run(make_run())
     truth = {"a": "healthy", "b": "missed_peak"}

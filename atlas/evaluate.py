@@ -183,12 +183,27 @@ def compare(
     series_ids: list[str],
     pipeline_calls: int,
     n_series_total: int,
+    n_clusters_without_report: int = 0,
 ) -> dict:
-    """The eval.json `comparison` block: both methods scored on exactly `series_ids`."""
+    """The eval.json `comparison` block: both methods scored on exactly `series_ids`.
+
+    A missing or failed (None) Gemma-alone answer is scored wrong, the honest outcome for the naive
+    solution, but counted in `gemma_alone.n_failed` so the table can say so. The pipeline side
+    records `n_clusters_without_report`: those clusters are named `other`, i.e. wrong.
+    """
+    n_failed = sum(baseline_pred.get(s) is None for s in series_ids)
     return {
         "n_series": len(series_ids),
-        "pipeline": {**_score(truth, pipeline_pred, series_ids), "gemma_calls": pipeline_calls},
-        "gemma_alone": {**_score(truth, baseline_pred, series_ids), "gemma_calls": len(series_ids)},
+        "pipeline": {
+            **_score(truth, pipeline_pred, series_ids),
+            "gemma_calls": pipeline_calls,
+            "n_clusters_without_report": n_clusters_without_report,
+        },
+        "gemma_alone": {
+            **_score(truth, baseline_pred, series_ids),
+            "gemma_calls": len(series_ids),
+            "n_failed": int(n_failed),
+        },
         "gemma_calls_full_dataset": {"pipeline": pipeline_calls, "gemma_alone": n_series_total},
     }
 
@@ -225,6 +240,20 @@ def markdown_table(evals: list[dict]) -> str:
                 f"| {name} | {_pct(m['accuracy'])} | {_num(m['macro_f1'])} "
                 f"| {m['gemma_calls']} | {full_calls} |"
             )
+        n_failed = comp["gemma_alone"].get("n_failed", 0)
+        n_unnamed = comp["pipeline"].get("n_clusters_without_report", 0)
+        notes = []
+        if n_failed:
+            notes.append(
+                f"Note: {n_failed} of {comp['n_series']} Gemma-alone calls failed and are scored as wrong; "
+                "re-run to retry them (cached answers cost nothing)."
+            )
+        if n_unnamed:
+            notes.append(
+                f"Note: {n_unnamed} pipeline cluster(s) have no Gemma report and are scored as `other` (wrong)."
+            )
+        for note in notes:
+            lines += ["", note]
         parts.append("\n".join(lines))
 
     lines = [

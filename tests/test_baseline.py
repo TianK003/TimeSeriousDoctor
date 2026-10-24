@@ -127,6 +127,8 @@ def test_main_writes_eval_with_both_methods(tmp_path, capsys):
     # correct: s0, s6, s7 (healthy_noise -> healthy)
     assert comp["gemma_alone"]["accuracy"] == pytest.approx(3 / 8)
     assert comp["gemma_alone"]["gemma_calls"] == 8
+    assert comp["gemma_alone"]["n_failed"] == 1             # the failed s4 call, visible in eval.json
+    assert comp["pipeline"]["n_clusters_without_report"] == 0
     assert set(comp["gemma_alone"]["per_class"]) == set(CLASSES) | {"healthy"}
     assert comp["gemma_alone"]["per_class"]["healthy"] == 1.0
     assert comp["gemma_alone"]["per_class"]["delayed_response"] == 0.5
@@ -140,6 +142,22 @@ def test_main_writes_eval_with_both_methods(tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert "Pipeline vs Gemma alone" in out and "Gemma alone" in out
+    assert "WARNING: baseline: 1 of 8 Gemma-alone calls failed" in out and "Re-run" in out
+    assert "Note: 1 of 8 Gemma-alone calls failed" in out  # footnote under the comparison table
+
+
+def test_main_counts_clusters_without_report(tmp_path, capsys):
+    run = make_run(tmp_path)
+    run.cluster(0).report = None  # as if Gemma failed on cluster 0
+    save_run(run, run.path)
+
+    evals = main(["--runs", str(run.path), "--taxonomy", str(TAXONOMY)], gemma_client=FakeClient())
+
+    assert evals[0]["comparison"]["pipeline"]["n_clusters_without_report"] == 1
+    out = capsys.readouterr().out
+    assert "WARNING: unit: 1 of 3 clusters have no Gemma report" in out
+    assert "Note: 1 pipeline cluster(s) have no Gemma report" in out
+    assert "Gemma-alone calls failed" not in out  # the baseline itself was fine
 
 
 def test_main_samples_n_baseline_series(tmp_path):

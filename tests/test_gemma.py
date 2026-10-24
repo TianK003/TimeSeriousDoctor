@@ -5,6 +5,7 @@ import httpx
 import pytest
 from google.genai import errors
 
+from atlas import gemma
 from atlas.config import GemmaConfig
 from atlas.gemma import GemmaClient, explain_cluster, summarize_atlas
 from atlas.prompts import system_prompt
@@ -28,12 +29,15 @@ REPORT_JSON = json.dumps(REPORT)
 class FakeModels:
     """Replays a script of responses: a str is the reply text, an Exception is raised."""
 
-    def __init__(self, script):
+    def __init__(self, script, on_call=None):
         self.script = list(script)
         self.calls = []
+        self.on_call = on_call  # e.g. advance the fake clock to simulate a slow call
 
     def generate_content(self, model, contents, config):
         self.calls.append(SimpleNamespace(model=model, contents=contents, config=config))
+        if self.on_call is not None:
+            self.on_call()
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -41,8 +45,8 @@ class FakeModels:
 
 
 class FakeClient:
-    def __init__(self, script):
-        self.models = FakeModels(script)
+    def __init__(self, script, on_call=None):
+        self.models = FakeModels(script, on_call)
 
 
 class FakeTime:
@@ -59,15 +63,19 @@ class FakeTime:
     def monotonic(self):
         return self.now
 
+    def sleep_silently(self, seconds):
+        self.now += seconds  # time passes, but it is not a backoff/throttle sleep
+
 
 def api_error(code):
     return errors.APIError(code, {"error": {"code": code, "message": "boom", "status": "ERR"}})
 
 
-def make_gc(tmp_path, script, rpm=0, raw_dir=None):
+def make_gc(tmp_path, script, rpm=0, raw_dir=None, call_cost=0.0):
+    """`call_cost`: seconds every fake API call takes on the fake clock."""
     ft = FakeTime()
     cfg = GemmaConfig(cache_dir=tmp_path / "cache", rpm=rpm)
-    client = FakeClient(script)
+    client = FakeClient(script, on_call=(lambda: ft.sleep_silently(call_cost)) if call_cost else None)
     gc = GemmaClient(cfg, client=client, raw_dir=raw_dir, sleep=ft.sleep, clock=ft.monotonic)
     return gc, client.models, ft
 
@@ -186,18 +194,45 @@ def test_500_and_504_are_retried_too(tmp_path):
     assert gen(gc) is not None and ft.sleeps == [2, 4]
 
 
-def test_connection_timeout_is_retried(tmp_path):
+def test_connection_timeout_is_retried_once(tmp_path):
     gc, models, ft = make_gc(tmp_path, [httpx.ReadTimeout("slow"), REPORT_JSON])
     assert gen(gc) is not None and ft.sleeps == [2]
+    assert len(models.calls) == 2
+
+
+def test_repeated_timeout_gives_up_after_one_retry(tmp_path, capsys):
+    gc, models, ft = make_gc(tmp_path, [httpx.ReadTimeout("slow"), httpx.ConnectError("down"), REPORT_JSON])
+    assert gen(gc) is None
+    assert len(models.calls) == 2 and ft.sleeps == [2]  # not 5 attempts
+    assert "no result" in capsys.readouterr().out
 
 
 def test_persistent_error_returns_none_after_backoff_schedule(tmp_path, capsys):
     gc, models, ft = make_gc(tmp_path, [api_error(503)] * 5)
     assert gen(gc) is None
-    assert len(models.calls) == 5
-    assert ft.sleeps == [2, 4, 8, 16]
+    assert len(models.calls) == 4  # first attempt + 3 retries
+    assert ft.sleeps == [2, 4, 8]
     out = capsys.readouterr().out
     assert "no result" in out and "APIError" in out
+
+
+def test_http_timeout_is_45_seconds():
+    assert gemma.TIMEOUT_MS == 45_000
+
+
+def test_total_wall_time_per_call_is_capped(tmp_path, capsys):
+    # every attempt takes 40 s and fails with 503: attempt 3 ends at t=126 s, past the 120 s cap
+    gc, models, ft = make_gc(tmp_path, [api_error(503)] * 10, call_cost=40.0)
+    assert gen(gc) is None
+    assert len(models.calls) == 3 and ft.sleeps == [2, 4]
+    assert "gave up" in capsys.readouterr().out
+
+
+def test_wall_time_cap_is_shared_with_the_validation_retry(tmp_path, capsys):
+    gc, models, ft = make_gc(tmp_path, ["not json", REPORT_JSON], call_cost=130.0)
+    assert gen(gc) is None
+    assert len(models.calls) == 1  # no second request: the budget is already spent
+    assert "gave up" in capsys.readouterr().out
 
 
 def test_non_retryable_error_fails_fast(tmp_path):
