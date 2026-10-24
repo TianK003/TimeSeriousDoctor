@@ -96,13 +96,77 @@ def _model_card_lines(dist: dict[str, float]) -> list[str]:
     return lines
 
 
+MAX_EXPERT_EXAMPLES = 3
+MAX_EXPERT_FEATURES = 4
+EXPERT_HEADER = (
+    "Expert-reviewed diagnoses from earlier runs (use them as reference, do not copy blindly):"
+)
+
+
+def _distinctive_features(example: dict) -> list[tuple[str, float]]:
+    """The few feature medians that set the reviewed cluster apart from all anomalous windows.
+
+    Ranked by the symmetric relative difference |m - b| / (|m| + |b|), which is scale-free
+    across features; without a stored baseline the largest absolute medians are used.
+    """
+    base = example.get("feature_median_all_gated") or {}
+    feats: list[tuple[str, float]] = []
+    for name, value in (example.get("feature_median") or {}).items():
+        try:
+            feats.append((str(name), float(value)))
+        except (TypeError, ValueError):
+            continue
+
+    def score(item: tuple[str, float]) -> float:
+        name, value = item
+        try:
+            b = float(base[name])
+        except (KeyError, TypeError, ValueError):
+            return abs(value) * 1e-6  # no baseline: tie-break by magnitude, behind every ranked feature
+        denom = abs(value) + abs(b)
+        return abs(value - b) / denom if denom else 0.0
+
+    return sorted(feats, key=score, reverse=True)[:MAX_EXPERT_FEATURES]
+
+
+def expert_examples_block(examples: list[dict]) -> str:
+    """Expert-reviewed cluster diagnoses as reference examples, inside a <data> block.
+
+    Each example is an `expert_feedback.json` entry: status (confirmed / renamed / rejected),
+    name, failure_type, note, gemma_name, feature_median[, feature_median_all_gated].
+    Every free-text field is expert-typed, so it goes through `clean_text` like any user text.
+    """
+    lines = []
+    for ex in examples[:MAX_EXPERT_EXAMPLES]:
+        feats = ", ".join(f"{clean_text(n, 40)} {v:.2f}" for n, v in _distinctive_features(ex))
+        ftype = clean_text(ex.get("failure_type", "other"), 40)
+        if ex.get("status") == "rejected":
+            shown = ex.get("gemma_name") or ex.get("name", "")
+            head = f'the expert REJECTED this diagnosis: "{clean_text(shown, 80)}" (failure_type {ftype})'
+        else:
+            head = f'expert diagnosis: "{clean_text(ex.get("name", ""), 80)}" (failure_type {ftype})'
+        line = f"- {head}"
+        if feats:
+            line += f"; distinctive median features: {feats}"
+        note = clean_text(ex.get("note", ""))
+        if note:
+            line += f'; expert note: "{note}"'
+        lines.append(line)
+    return EXPERT_HEADER + "\n" + data_block(lines)
+
+
 def cluster_user_prompt(
-    cluster: ClusterInfo, n_gated: int, n_windows: int, feature_docs: dict[str, str]
+    cluster: ClusterInfo,
+    n_gated: int,
+    n_windows: int,
+    feature_docs: dict[str, str],
+    expert_examples: list[dict] | None = None,
 ) -> str:
     """User message for one cluster (SPEC §7.9 template).
 
     `feature_docs` is accepted for interface symmetry; the glossary itself lives in the
-    system prompt so it is not repeated on every cluster call.
+    system prompt so it is not repeated on every cluster call. `expert_examples` (at most 3
+    are used) adds the expert-reviewed block from earlier runs (SPEC P2.2).
     """
     rows = "\n".join(
         f"| {name} | {value:.2f} | {cluster.feature_median_all_gated.get(name, float('nan')):.2f} |"
@@ -120,6 +184,8 @@ def cluster_user_prompt(
     if cluster.context:
         context = ", ".join(f"{clean_text(k, 60)} {v:.2f}" for k, v in cluster.context.items())
         parts.append(f"Calendar context (share of the cluster's windows): {context}")
+    if expert_examples:
+        parts.append(expert_examples_block(expert_examples))
     parts.append(IMAGE_LEGEND)
     return "\n\n".join(parts)
 

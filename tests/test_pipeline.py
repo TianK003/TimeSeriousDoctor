@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -116,3 +117,63 @@ def test_moment_embedder_not_available(data_dir, tmp_path):
     cfg = make_cfg(tmp_path).model_copy(update={"embedder": "moment"})
     with pytest.raises(NotImplementedError, match="--embedder features"):
         run_atlas(data_dir, cfg, "m", use_gemma=False)
+
+
+# ---------------------------------------------------------------- expert feedback (P2.2)
+
+class RecordingGemma(FakeGemma):
+    def __init__(self):
+        super().__init__()
+        self.cluster_users: list[str] = []
+
+    def generate(self, system, user, schema, image=None, tag=""):
+        if schema is GemmaClusterReport:
+            self.cluster_users.append(user)
+        return super().generate(system, user, schema, image, tag)
+
+
+def entry(status: str, name: str) -> dict:
+    return {
+        "status": status, "name": name, "failure_type": "delayed_response", "note": f"note for {name}",
+        "gemma_name": f"gemma {name}", "summary": "s", "feature_median": {"best_lag": 3.0},
+    }
+
+
+def test_run_atlas_passes_expert_examples_into_every_cluster_prompt(data_dir, tmp_path):
+    prev = tmp_path / "prev"
+    prev.mkdir()
+    feedback = {
+        "0": entry("rejected", "RejectedOne"), "1": entry("renamed", "RenamedOne"),
+        "2": entry("confirmed", "ConfirmedOne"), "3": entry("confirmed", "ConfirmedTwo"),
+        "4": {"status": "bogus", "name": "Ignored"},
+    }
+    (prev / "expert_feedback.json").write_text(json.dumps(feedback), encoding="utf-8")
+
+    fake = RecordingGemma()
+    run_atlas(data_dir, make_cfg(tmp_path), "t", gemma_client=fake, taxonomy_path=REPO_ROOT / "taxonomy.yaml",
+              expert_from=prev)
+    assert fake.cluster_users
+    for user in fake.cluster_users:
+        assert "Expert-reviewed diagnoses" in user
+        assert "ConfirmedOne" in user and "ConfirmedTwo" in user and "RenamedOne" in user  # confirmed first, max 3
+        assert "RejectedOne" not in user and "Ignored" not in user
+    assert not (tmp_path / "runs" / "t" / "expert_feedback.json").exists()  # nothing else is copied
+
+
+def test_run_atlas_expert_from_without_feedback_file_still_runs(data_dir, tmp_path, capsys):
+    empty = tmp_path / "empty_prev"
+    empty.mkdir()
+    fake = RecordingGemma()
+    run_atlas(data_dir, make_cfg(tmp_path), "t", gemma_client=fake, taxonomy_path=REPO_ROOT / "taxonomy.yaml",
+              expert_from=empty)
+    assert "no expert_feedback.json" in capsys.readouterr().out
+    assert fake.cluster_users and all("Expert-reviewed" not in u for u in fake.cluster_users)
+
+
+def test_cli_accepts_expert_from(monkeypatch):
+    import scripts.run_atlas as cli
+
+    seen = {}
+    monkeypatch.setattr(cli, "run_atlas", lambda *a, **kw: seen.update(kw))
+    cli.main(["--data", "d", "--run-name", "r", "--expert-from", "runs/prev"])
+    assert seen["expert_from"] == Path("runs/prev")

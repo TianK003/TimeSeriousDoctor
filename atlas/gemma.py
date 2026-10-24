@@ -209,9 +209,13 @@ def explain_cluster(
     n_windows: int,
     system: str,
     feature_docs: dict[str, str],
+    expert_examples: list[dict] | None = None,
 ) -> GemmaClusterReport | None:
-    """Gemma's report for one cluster: failure type, name, evidence, causes, fixes."""
-    user = cluster_user_prompt(cluster, n_gated, n_windows, feature_docs)
+    """Gemma's report for one cluster: failure type, name, evidence, causes, fixes.
+
+    `expert_examples` are expert-reviewed diagnoses from an earlier run (few-shot reference).
+    """
+    user = cluster_user_prompt(cluster, n_gated, n_windows, feature_docs, expert_examples)
     return gc.generate(system, user, GemmaClusterReport, image=image, tag=f"cluster_{cluster.cluster_id}")
 
 

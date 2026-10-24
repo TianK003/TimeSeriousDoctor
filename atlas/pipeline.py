@@ -5,6 +5,7 @@ Owner: A. Task: P0.14. Spec: SPEC.md §7.10.
 
 from __future__ import annotations
 
+import json
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,7 +18,7 @@ from atlas.features import FEATURE_DOCS, FEATURES, compute_features
 from atlas.gate import add_scores, gate_windows
 from atlas.gemma import GemmaClient, explain_cluster, summarize_atlas
 from atlas.plots import cluster_panel_png
-from atlas.prompts import system_prompt
+from atlas.prompts import MAX_EXPERT_EXAMPLES, system_prompt
 from atlas.residuals import compute_scaled_residuals, make_windows, window_matrix
 from atlas.schema import (
     CLUSTER_NOISE,
@@ -36,6 +37,24 @@ def _stage(name: str):
     print(f"stage: {name} … {time.perf_counter() - t0:.1f}s")
 
 
+EXPERT_STATUS_ORDER = {"confirmed": 0, "renamed": 1, "rejected": 2}
+
+
+def load_expert_examples(expert_from: Path) -> list[dict]:
+    """Reviewed diagnoses from a previous run's expert_feedback.json: max 3, confirmed first.
+
+    Entries with an unknown status are ignored; a missing file gives no examples (with a note).
+    """
+    path = Path(expert_from) / "expert_feedback.json"
+    if not path.is_file():
+        print(f"expert feedback: no {path.name} in {expert_from}, running without expert examples")
+        return []
+    feedback = json.loads(path.read_text(encoding="utf-8"))
+    entries = [e for e in feedback.values() if isinstance(e, dict) and e.get("status") in EXPERT_STATUS_ORDER]
+    entries.sort(key=lambda e: EXPERT_STATUS_ORDER[e["status"]])  # stable: file order within a status
+    return entries[:MAX_EXPERT_EXAMPLES]
+
+
 def run_atlas(
     data_dir: Path,
     cfg: Config,
@@ -43,11 +62,14 @@ def run_atlas(
     use_gemma: bool = True,
     gemma_client=None,
     taxonomy_path: Path = Path("taxonomy.yaml"),
+    expert_from: Path | None = None,
 ) -> RunResult:
     """Load -> residuals -> windows -> gate -> features -> embed -> cluster -> panels -> Gemma -> save.
 
     The run folder is written to `cfg.runs_dir / run_name`. `gemma_client` replaces the real
     GemmaClient (tests); with `use_gemma=False` the clusters carry no report and there is no summary.
+    `expert_from` is an earlier run folder whose expert_feedback.json supplies reviewed diagnoses
+    (max 3) as few-shot examples in every cluster prompt (SPEC P2.2); nothing else is copied.
     """
     if cfg.embedder != "features":
         raise NotImplementedError("MOMENT embedder not available yet; use --embedder features")
@@ -107,11 +129,14 @@ def run_atlas(
         with _stage("gemma"):
             gc = gemma_client or GemmaClient(cfg.gemma, raw_dir=run_dir / "gemma_raw")
             system = system_prompt(render_taxonomy(load_taxonomy(taxonomy_path)), FEATURE_DOCS)
+            expert_examples = load_expert_examples(expert_from) if expert_from is not None else None
+            if expert_examples:
+                print(f"expert feedback: {len(expert_examples)} reviewed diagnoses from {expert_from} in every prompt")
             for c in clusters:
                 if c.cluster_id < 0:
                     continue
                 image = (run_dir / c.image_path).read_bytes()
-                c.report = explain_cluster(gc, c, image, n_gated, n_windows, system, FEATURE_DOCS)
+                c.report = explain_cluster(gc, c, image, n_gated, n_windows, system, FEATURE_DOCS, expert_examples)
             n_reports = sum(c.report is not None for c in clusters)
             summary = summarize_atlas(gc, clusters)
 
