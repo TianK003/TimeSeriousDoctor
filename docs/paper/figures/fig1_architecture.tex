@@ -1,0 +1,63 @@
+% Fig. 1: system architecture. Blue = code measures, orange = Gemma explains, grey = interface.
+\hyphenpenalty=10000 \exhyphenpenalty=10000
+\begin{tikzpicture}[
+    font=\sffamily\scriptsize,
+    >={Stealth[length=4pt,width=3.4pt]},
+    cbox/.style={draw=cmeas, fill=white, line width=0.6pt, rounded corners=2pt, align=center,
+                 minimum width=1.95cm, text width=1.8cm, minimum height=1.35cm, inner sep=2pt},
+    gbox/.style={draw=cgem, fill=white, line width=0.6pt, rounded corners=2pt, align=center, inner sep=3pt},
+    ibox/.style={draw=cio, fill=white, line width=0.6pt, rounded corners=2pt, align=center, inner sep=3pt},
+    flow/.style={->, line width=0.7pt, draw=cmeas!80!black},
+    tab/.style={font=\sffamily\bfseries\fontsize{6.5}{7}\selectfont, text=white, inner sep=2.2pt, anchor=south west},
+    badge/.style={circle, inner sep=0.6pt, minimum size=9pt, font=\sffamily\bfseries\fontsize{5.5}{6}\selectfont, text=white}
+  ]
+  % ---- row 1: deterministic code ------------------------------------------------
+  \node[cbox] (data) at (0,0)     {\textbf{Dataset}\\\figsub{actual, forecast,\\model card}};
+  \node[cbox] (res)  at (2.35,0)  {\textbf{Scaled residuals}\\\figsub{$\rS=(a-p)/\sigma_s$\\MASE scale}};
+  \node[cbox] (win)  at (4.7,0)   {\textbf{Windows}\\\figsub{$L=28$, stride 14\\forecast rows only}};
+  \node[cbox] (gate) at (7.05,0)  {\textbf{Anomaly gate}\\\figsub{abs.\ error, bias\\keep abnormal}};
+  \node[cbox] (emb)  at (9.4,0)   {\textbf{Embedding}\\\figsub{10 features, MOMENT,\\or both}};
+  \node[cbox] (clu)  at (11.75,0) {\textbf{Clustering}\\\figsub{HDBSCAN $\to$ KMeans\\medoids, stats}};
+  \node[cbox] (pan)  at (14.1,0)  {\textbf{Cluster panels}\\\figsub{PNG: 3 medoids\\+ residual overlay}};
+  \foreach \a/\b in {data/res,res/win,win/gate,gate/emb,emb/clu,clu/pan}
+    \draw[flow] (\a.east) -- (\b.west);
+
+  % ---- row 2: Gemma -> run folder -> UI (right to left) -----------------------------
+  \node[gbox, minimum width=5.1cm, minimum height=1.5cm] (gem) at (12.5,-3.0)
+    {\textbf{Gemma 4 diagnosis}\\\figsub{\texttt{gemma-4-26b-a4b-it} via Gemini API}\\[1pt]
+     \figsub{name, evidence, causes, fixes, metric}\\\figsub{one call per cluster + 1 summary}};
+  \node[ibox, minimum width=4.4cm, minimum height=1.5cm] (run) at (6.15,-3.0)
+    {\textbf{Run folder} \texttt{runs/<name>/}\\\figsub{windows.parquet, clusters.json, images/,}\\\figsub{summary.json, eval.json}};
+  \node[ibox, minimum width=4.4cm, minimum height=1.5cm] (ui) at (1.2,-3.0)
+    {\textbf{Streamlit atlas}\\\figsub{Atlas $\cdot$ Cluster $\cdot$ Series $\cdot$ Evaluation}\\\figsub{loads runs only, never runs the engine}};
+  \node[gbox, dashed, minimum width=5.1cm, minimum height=0.85cm] (tax) at (12.5,-5.2)
+    {\textbf{taxonomy.yaml}\ \figsub{expert: definitions, signatures,}\\\figsub{causes, fixes, metrics $\to$ system prompt}};
+
+  % ---- regions (drawn behind) -------------------------------------------------------
+  \begin{scope}[on background layer]
+    \node[fit=(data)(pan), fill=cmeasfill, draw=cmeas!55, rounded corners=3pt, inner xsep=6pt, inner ysep=7pt] (blue) {};
+    \node[fit=(gem), fill=cgemfill, draw=cgem!60, rounded corners=3pt, inner xsep=6pt, inner ysep=7pt] (orange) {};
+    \node[fit=(run)(ui), fill=ciofill, draw=cio!55, rounded corners=3pt, inner xsep=6pt, inner ysep=7pt] (grey) {};
+  \end{scope}
+  \node[tab, fill=cmeas, rounded corners=1pt] at (blue.north west) {CODE MEASURES: every number};
+  \node[tab, fill=cgem,  rounded corners=1pt] at (orange.north west) {GEMMA EXPLAINS};
+  \node[tab, fill=cio,   rounded corners=1pt] at (grey.north west) {INTERFACE: the run folder is the only contract};
+
+  % ---- connections between regions --------------------------------------------------
+  \draw[->, line width=0.7pt, draw=cmeas!80!black] (pan.south) -- (pan.south |- orange.north)
+    node[midway, right, text=cio, font=\sffamily\fontsize{6.3}{7}\selectfont] {panel + numbers};
+  \draw[->, line width=0.7pt, draw=cgem] (gem.west) -- (run.east)
+    node[midway, above, text=cio, font=\sffamily\fontsize{6.3}{7}\selectfont] {reports};
+  \draw[->, line width=0.7pt, draw=cio] (run.west) -- (ui.east);
+  \draw[->, dashed, line width=0.6pt, draw=cio] (gate.south |- blue.south) -- (gate.south |- run.north)
+    node[midway, right, text=cio, font=\sffamily\fontsize{6.3}{7}\selectfont, align=left]
+    {windows, features,\\clusters, panels};
+  \draw[->, dashed, line width=0.6pt, draw=cgem] (tax.north) -- (gem.south);
+
+  % ---- step badges ------------------------------------------------------------------
+  \foreach \n/\c [count=\i] in {data/cmeas,res/cmeas,win/cmeas,gate/cmeas,emb/cmeas,clu/cmeas,pan/cmeas}
+    \node[badge, fill=\c] at (\n.north west) {\i};
+  \node[badge, fill=cgem] at (gem.north west) {8};
+  \node[badge, fill=cio]  at (run.north west) {9};
+  \node[badge, fill=cio]  at (ui.north west)  {10};
+\end{tikzpicture}

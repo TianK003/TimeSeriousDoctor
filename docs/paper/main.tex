@@ -1,0 +1,373 @@
+% TimeSeriousDoctor technical paper.
+% Build: tectonic docs/paper/main.tex   (or upload docs/paper/ to Overleaf, XeLaTeX/pdfLaTeX)
+\documentclass[10pt,twocolumn,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{mathpazo}
+\usepackage[scaled=0.9]{helvet}
+\usepackage[a4paper,margin=0.75in,columnsep=0.3in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,array}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage[font=small,labelfont=bf,labelsep=period,justification=justified,singlelinecheck=false]{caption}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepgfplotslibrary{groupplots}
+\usetikzlibrary{positioning,fit,backgrounds,arrows.meta,calc,shapes.geometric}
+\pgfplotsset{compat=1.17}
+\usepackage[colorlinks=true,linkcolor=cmeas,citecolor=cmeas,urlcolor=cmeas]{hyperref}
+
+% ---------------------------------------------------------------- palette (shared by all figures)
+\definecolor{cmeas}{HTML}{2B6CB0}      % code measures
+\definecolor{cmeasfill}{HTML}{E8F1FA}
+\definecolor{cgem}{HTML}{C05621}       % Gemma explains
+\definecolor{cgemfill}{HTML}{FCEFE3}
+\definecolor{cio}{HTML}{4A5568}        % interface / storage / neutral
+\definecolor{ciofill}{HTML}{EDF2F7}
+\definecolor{cact}{HTML}{1A202C}       % actual
+\definecolor{cpred}{HTML}{C53030}      % predicted / error
+\definecolor{cgate}{HTML}{FBE3E3}      % gated windows
+\definecolor{cgrid}{HTML}{CBD5E0}
+
+% ---------------------------------------------------------------- macros
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\feat}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\rS}{r^{\mathrm{s}}}
+\newcommand{\aS}{a^{\mathrm{s}}}
+\newcommand{\pS}{p^{\mathrm{s}}}
+\newcommand{\corr}{\operatorname{corr}}
+\newcommand{\sgn}{\operatorname{sgn}}
+\newcommand{\Ind}{\mathbb{1}}
+\newcommand{\tbd}{\textcolor{cio}{\textit{tbd}}}
+\newcommand{\figsub}[1]{{\fontsize{6.3}{7.3}\selectfont\color{cio}#1}}   % small grey label inside figures
+
+\setlist{nosep,leftmargin=*,itemsep=2pt,topsep=3pt}
+\emergencystretch=2em
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\dbltopfraction}{0.9}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.7}
+\renewcommand{\dblfloatpagefraction}{0.7}
+
+\title{\textbf{TimeSeriousDoctor: Finding and Explaining Recurring\\ Forecast Failures with Clustering and Gemma~4}}
+\author{TimeSeriousDoctor team}
+\date{Technical report, October 2026}
+
+\begin{document}
+\makeatletter
+\twocolumn[\begin{@twocolumnfalse}
+\maketitle
+
+% ================================================================ ABSTRACT
+\begin{abstract}
+\noindent Forecasting teams judge models with aggregate error metrics, which say \emph{how much} a model is wrong but not \emph{how}. Recurring failure modes---lagging behind changes, missing peaks, not adapting to level shifts, over-smoothing---are usually found by experts eyeballing plots, which does not scale to thousands of series. We present TimeSeriousDoctor, an open-source pipeline that (i)~scales forecast residuals per series with a MASE-style denominator, (ii)~cuts them into windows and keeps only abnormal ones through an anomaly gate, (iii)~describes each window with ten interpretable failure features and, optionally, a time-series foundation model embedding, (iv)~clusters the windows into recurring failure patterns, and (v)~asks Gemma~4, given a chart panel, the feature numbers and an expert-written failure taxonomy, to name and explain each pattern as schema-constrained JSON. The guiding rule is \emph{code measures, Gemma explains}: every number is computed deterministically and the language model only interprets it. One Gemma call per cluster replaces one call per series. We describe the method, an evaluation protocol built on synthetic data with injected, labelled failures and on a same-model ``Gemma alone'' baseline, and the open implementation (Apache-2.0, open-weight models).
+\end{abstract}
+\vspace{6pt}
+\end{@twocolumnfalse}]
+\makeatother
+
+% ================================================================ 1 INTRODUCTION
+\section{Introduction}
+\label{sec:intro}
+
+Forecasting systems are judged by aggregate metrics such as MAE, RMSE or the scaled MASE~\cite{hyndman2006}. These numbers rank models, but they hide the \emph{shape} of the errors. Two models with the same MASE can fail in opposite ways: one follows every movement a few days late, the other tracks the weekly rhythm but misses every promotion spike. In large retail collections such as M5~\cite{makridakis2022}, with tens of thousands of series, such failures are systematic and costly, yet an average over series dilutes them.
+
+Experts find these failures by looking at plots: a forecast that trails the actuals, spikes that are never predicted, a forecast stuck at an old level after a structural break, a forecast that is too flat. This is effective but it does not scale: nobody can inspect thousands of charts, and nobody can tell from single charts which failures \emph{recur}. A tempting shortcut is to show each chart to a multimodal language model and ask what is wrong. That needs one call per series, gives no grouping across series, does not say \emph{where} in the series the problem sits, and puts the model in charge of judging magnitudes it cannot measure.
+
+TimeSeriousDoctor takes the opposite route. It first \emph{measures}: scaled residuals, windows, a gate that keeps only abnormal windows, and failure features that encode how experts recognise each failure. It then \emph{groups} the abnormal windows by similarity, and only then \emph{explains}: Gemma~4~\cite{gemma4} receives one multimodal prompt per group (a chart panel, a feature table and the expert taxonomy) and returns a structured diagnosis. Every number shown to the user comes from code; the language model never computes one.
+
+\paragraph{Contributions.}
+\begin{itemize}
+  \item A scale-free residual representation (MASE-style scaling, overlapping windows, an anomaly gate) that makes forecast errors comparable across thousands of series (\S\ref{sec:resid}--\ref{sec:gate}).
+  \item Ten interpretable failure features, each tied to an expert-recognisable signature, and an optional MOMENT~\cite{goswami2024} embedding that can be used alone or combined with them (\S\ref{sec:features}--\ref{sec:embed}).
+  \item Density-based clustering of abnormal windows with an unclustered ``look manually'' bucket (\S\ref{sec:cluster}).
+  \item A multimodal, schema-constrained Gemma~4 diagnosis step that costs $k{+}1$ calls for $k$ clusters, with disk caching, throttling and an expert-written taxonomy injected into every prompt (\S\ref{sec:gemma}--\ref{sec:expert}).
+  \item An evaluation protocol with injected, labelled failures that includes a same-model, same-taxonomy, same-series \emph{Gemma alone} baseline (\S\ref{sec:eval}).
+  \item An open implementation: Apache-2.0 code, Gemma~4 and MOMENT open weights, a Streamlit ``atlas'' that reads a self-contained run folder (\S\ref{sec:impl}).
+\end{itemize}
+
+% ================================================================ 2 METHOD
+\section{Method}
+\label{sec:method}
+
+Figure~\ref{fig:arch} shows the whole pipeline. The left part (blue) is deterministic code; Gemma~4 (orange) is called only after the abnormal windows have been grouped; the \emph{run folder} is the only interface between the engine and the user interface.
+
+\begin{figure*}[t]
+  \centering
+  \input{figures/fig1_architecture.tex}
+  \caption{TimeSeriousDoctor pipeline. Blue stages are deterministic code: every number in the interface is produced there. Gemma~4 (orange) is called once per cluster, plus once for an executive summary, and only interprets the numbers and the chart panel it is given. Windows dropped by the gate are kept for statistics only; gated windows that clustering leaves unassigned form the cluster $-1$ bucket (``look manually''), which costs no Gemma call.}
+  \label{fig:arch}
+\end{figure*}
+
+\subsection{Residual scaling}
+\label{sec:resid}
+
+A series $s$ has history rows $\mathcal H_s$ (no forecast) and out-of-sample forecast rows $\mathcal F_s$ with actuals $a_t$ and predictions $p_t$. The residual is
+\begin{equation}
+  r_t = a_t - p_t,
+\end{equation}
+so a positive residual means under-prediction. To compare series with different levels and volatility, each series gets a scale equal to the MASE denominator~\cite{hyndman2006}: the mean absolute seasonal difference of the history,
+\begin{equation}
+  \sigma_s = \frac{1}{|\mathcal H_s|-m}\sum_{\substack{t\in\mathcal H_s\\ t>m}} \left|a_t - a_{t-m}\right|,
+  \qquad m=7,
+\end{equation}
+with fallback $m=1$ if $|\mathcal H_s| < 2m$. A guard keeps the scale away from zero for flat or tiny series, $\sigma_s \leftarrow \max\{\sigma_s,\,10^{-6},\,0.05\,\overline{|a|}_s\}$, where $\overline{|a|}_s$ is the mean absolute actual level. With $\mu_s$ the mean of the history actuals, the scaled quantities used everywhere downstream are
+\begin{equation}
+  \rS_t = \frac{r_t}{\sigma_s},\qquad
+  \aS_t = \frac{a_t-\mu_s}{\sigma_s},\qquad
+  \pS_t = \frac{p_t-\mu_s}{\sigma_s}.
+\end{equation}
+Because $\sigma_s$ is estimated from history only, it does not depend on the forecast under evaluation, and $\rS_t \approx 1$ corresponds roughly to a typical error of a seasonal-naive forecast. Gate thresholds and Gemma prompts share this unit.
+
+\subsection{Windows and anomaly gate}
+\label{sec:gate}
+
+Forecast rows of each series are indexed $j = 0,\dots,|\mathcal F_s|-1$. A window $w=(s,i)$ covers the $L$ steps $j\in[i,\,i+L)$, with start indices $i\in\{0,\Delta,2\Delta,\dots\}$, window length $L=28$ and stride $\Delta=14$. Trailing partial windows are dropped, so a series yields $\lfloor(|\mathcal F_s|-L)/\Delta\rfloor+1$ windows. Windows are identified as \texttt{<series\_id>\#<start\_idx>}. Figure~\ref{fig:window} illustrates the construction on a synthetic series.
+
+\begin{figure*}[t]
+  \centering
+  \input{figures/fig2_windowing_gate.tex}
+  \caption{Residual windowing and anomaly gate on an illustrative synthetic series (curves are closed-form functions, not data). (a)~Actual and forecast; after step 56 the forecast is out of sample. A delayed-response failure is injected in steps 92--131. (b)~Scaled residual $\rS_t$. (c)~Overlapping windows of $L=28$ steps with stride 14. Windows whose gate score exceeds the threshold are gated (red) and go on to clustering; the others are kept for statistics only (grey).}
+  \label{fig:window}
+\end{figure*}
+
+Each window gets two scores on the scaled residual,
+\begin{equation}
+  g^{\mathrm{abs}}_w = \frac1L\sum_{t\in w}\left|\rS_t\right|,\qquad
+  g^{\mathrm{bias}}_w = \left|\frac1L\sum_{t\in w}\rS_t\right|.
+\end{equation}
+In \emph{threshold} mode, the default for synthetic data, a window is gated if
+\begin{equation}
+  g^{\mathrm{abs}}_w > \tau_{\mathrm{abs}}=1.0 \quad\text{or}\quad g^{\mathrm{bias}}_w > \tau_{\mathrm{bias}}=0.75 .
+\end{equation}
+In \emph{quantile} mode, the default for real data without ground truth, a window is gated if $g^{\mathrm{abs}}_w$ lies in the top $q=0.25$ of all windows. The gate is deliberately simple: its purpose is to keep ordinary noise out of the clustering so that clusters describe systematic errors, and to make the clustering cost proportional to the number of abnormal windows rather than to the dataset.
+
+\subsection{Failure features}
+\label{sec:features}
+
+Ten features are computed vectorised for \emph{all} windows on the scaled values (Table~\ref{tab:features}). They encode how a forecasting expert recognises the failure types of \S\ref{sec:expert}: the lag search reads up to $K=7$ rows of context before and after the window from the full series, so a window near the boundary of the failure can still be recognised. Each feature has a plain-language glossary entry that is reused in prompts and in the interface. Figure~\ref{fig:sig} shows the four failure signatures that these features are designed to separate.
+
+\begin{table*}[t]
+  \centering
+  \caption{Failure features. Inside a window of length $L$, $r_t,a_t,p_t$ denote the scaled values $\rS_t,\aS_t,\pS_t$; $\Delta a_t=a_t-a_{t-1}$, $\Delta p_t$ likewise; $\bar x$ is the window mean. $\mathcal P$ is the set of peak rows, the top 15\,\% of $a_t$ in the window.}
+  \label{tab:features}
+  \small
+  \renewcommand{\arraystretch}{1.35}
+  \begin{tabular}{@{}l>{\raggedright\arraybackslash}p{7.4cm}>{\raggedright\arraybackslash}p{6.3cm}@{}}
+    \toprule
+    Feature & Definition & Reading \\
+    \midrule
+    \feat{abs_err} & $\displaystyle \frac1L\sum_t |r_t|$ & overall severity \\
+    \feat{bias} & $\displaystyle \bar r=\frac1L\sum_t r_t$ & $>0$ under-, $<0$ over-prediction \\
+    \feat{best_lag} & $\displaystyle k^\ast=\arg\max_{k\in\{-K,\dots,K\}} \corr\!\big(p_t,\,a_{t-k}\big)$ & $k^\ast>0$: prediction trails the actual \\
+    \feat{lag_gain} & $\displaystyle \corr(p_t,a_{t-k^\ast})-\corr(p_t,a_t)$ & strength of the lag signature \\
+    \feat{slope_corr} & $\displaystyle \corr\!\big(r_t,\,\Delta a_t\big)$ & lag shows up as residual $\propto$ slope \\
+    \feat{peak_excess} & $\displaystyle \bar r_{\mathcal P}-\bar r_{\bar{\mathcal P}}$, \quad $\mathcal P=\{t: a_t\ge Q_{0.85}(a)\}$ & missed peaks: large positive values \\
+    \feat{var_ratio} & $\displaystyle \operatorname{std}(p_t)\,/\,\operatorname{std}(a_t)$ (guarded for $\operatorname{std}\approx 0$) & $<1$: forecast too flat, over-smoothing \\
+    \feat{sign_run} & $\displaystyle \frac1L\max\big\{\text{length of a run of equal }\sgn(r_t)\big\}$ & persistent error, e.g.\ a level shift \\
+    \feat{r_trend} & $\displaystyle L\cdot\frac{\operatorname{Cov}(t,r_t)}{\operatorname{Var}(t)}$ (OLS slope of $r_t$, times $L$) & error growing or shrinking over the window \\
+    \feat{dir_acc} & $\displaystyle \frac{1}{L-1}\sum_t \Ind\big[\sgn(\Delta p_t)=\sgn(\Delta a_t)\big]$ & does the forecast move the right way? \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\begin{figure*}[t]
+  \centering
+  \input{figures/fig3_failure_signatures.tex}
+  \caption{The four failure signatures of the taxonomy, drawn as actual (black) versus predicted (red) series from closed-form functions (not data). Shaded regions mark where the failure acts. The boxes give the taxonomy signature in terms of the features of Table~\ref{tab:features}.}
+  \label{fig:sig}
+\end{figure*}
+
+\subsection{Embedding}
+\label{sec:embed}
+
+Only gated windows are embedded. The \texttt{embedder} setting selects one of three window representations.
+\begin{description}[leftmargin=0pt,labelindent=0pt,itemsep=2pt]
+  \item[\texttt{features}] The ten features $\mathbf f_w$, robust-scaled (median and inter-quartile range). This is the default: instant, interpretable, and the fallback if MOMENT is unavailable.
+  \item[\texttt{moment}] MOMENT-1~\cite{goswami2024}, an open time-series foundation model, run in embedding mode on the scaled residual window. The window is left-padded with zeros to MOMENT's input length of 512 and passed with a padding mask; one vector per window is returned, reduced with PCA to 16 dimensions and standardised. MOMENT may normalise its input internally, so the absolute size of an error can vanish from its embedding; this motivates the third mode. Embeddings are cached on disk.
+  \item[\texttt{both}] The concatenation of the two blocks, each divided by the square root of its dimension so that neither dominates a Euclidean distance:
+  \begin{equation}
+    \mathbf x_w=\Big[\tfrac{1}{\sqrt{10}}\,\mathrm{RS}(\mathbf f_w)\;;\;\tfrac{1}{\sqrt{16}}\,\mathrm{SS}\big(\mathrm{PCA}_{16}(\mathbf m_w)\big)\Big],
+  \end{equation}
+  where $\mathbf m_w$ is the MOMENT vector, $\mathrm{RS}$ the robust and $\mathrm{SS}$ the standard scaler.
+\end{description}
+The framework dependencies of MOMENT (PyTorch, \texttt{momentfm}) are imported lazily; everything else runs without them.
+
+\subsection{Clustering}
+\label{sec:cluster}
+
+If the representation has more than 16 dimensions it is first reduced to 16 by PCA. Windows are clustered with HDBSCAN~\cite{campello2013}, which needs no preset number of clusters and leaves atypical windows as noise. The procedure follows the cases below.
+\begin{enumerate}[label=(\roman*)]
+  \item HDBSCAN with minimum cluster size 20.
+  \item If it finds fewer than two clusters, or more than 60\,\% of the windows are noise, fall back to KMeans with $k\in[3,8]$ chosen by silhouette score.
+  \item If it finds more than 8 clusters, repeat with the minimum cluster size multiplied by 1.5 (at most three tries), then fall back to KMeans with $k=8$.
+\end{enumerate}
+Clusters are renumbered $0,\dots,n-1$ by decreasing size. Noise becomes the cluster $-1$ bucket, shown as ``unclustered, look manually'', and gets no Gemma call. For each cluster the engine computes its size, the number of distinct series, three \emph{medoid} windows (the members closest to the cluster centroid), the median of every feature for the cluster and for all gated windows, and the distribution of model cards. A 2-D PCA projection of the embeddings feeds the atlas scatter plot.
+
+\subsection{Diagnosis with Gemma 4}
+\label{sec:gemma}
+
+The diagnosis step (Figure~\ref{fig:gemma}) turns one cluster into one structured report. It applies the rule \emph{code measures, Gemma explains}: the prompt contains only numbers and charts produced by code, and the model is told never to invent numbers.
+
+\begin{figure*}[t]
+  \centering
+  \input{figures/fig4_gemma_diagnosis.tex}
+  \caption{The Gemma~4 diagnosis step for one cluster. Code produces the inputs; the prompt carries the expert taxonomy and the measured evidence; the response is constrained by a JSON schema, validated, and cached. A report that cannot be validated after one retry is stored as \texttt{None}, and the interface shows ``explanation unavailable'' for that cluster.}
+  \label{fig:gemma}
+\end{figure*}
+
+\paragraph{Multimodal prompt.}
+The image is a $1200\times900$ composite \emph{cluster panel}: three panels show the medoid windows (actual in black, forecast in red, scaled units, 14 steps of grey context before the window), and a fourth overlays the scaled residuals of up to 40 member windows with their median. The user message gives the cluster size, the number of series, the number of gated windows of all windows, the median feature table (this cluster versus all anomalous windows) and the model-card distribution. The system prompt sets the role of a senior forecasting analyst, states the residual convention and scale, and embeds the taxonomy (\S\ref{sec:expert}) and the feature glossary.
+
+\paragraph{Structured output.}
+The reply must be a JSON object with the fields \code{failure_type} (one of the taxonomy keys or \code{other}), \code{name}, \code{summary}, \code{evidence} (each item cites a provided number or a visible pattern), \code{likely_causes} (each with a \code{why}), \code{suggested_fixes}, \code{metric_to_monitor} and \code{confidence}. The call uses the \code{response_schema} of the Gemini API with a pydantic model and temperature 0.2. The reply is parsed defensively (code fences stripped, JSON parsed, pydantic validation); on failure there is one retry with the validation error appended, and then the cluster gets no report rather than a guessed one.
+
+\paragraph{Cost and robustness.}
+Requests are throttled to a configurable rate (default 10 per minute); 429 and 5xx errors are retried with back-off of 2, 4, 8 and 16 seconds. Every response is cached on disk under the SHA-256 of model name, system prompt, user message and image bytes, so re-running never re-calls the API, and raw replies are kept in the run folder for debugging. A run therefore costs $k{+}1$ calls: one per cluster plus one executive summary over the cluster reports. User-supplied strings (\code{model_card}, \code{group}, \code{series_id}) reach the prompt, so each is truncated to 200 characters and placed in a delimited data block that the system prompt declares to be data, never instructions; Gemma has no tools, and its output is only validated and displayed as plain text.
+
+\subsection{Expert knowledge loop}
+\label{sec:expert}
+
+Expert knowledge enters through two channels. The first is \code{taxonomy.yaml}, written and refined by the time-series expert on the team. For each failure type it holds a definition, a signature expressed in the features of Table~\ref{tab:features}, likely causes, concrete fixes and a metric to monitor. The taxonomy covers four failure types (Figure~\ref{fig:sig}) plus \code{healthy_noise} for elevated errors without systematic structure:
+\begin{itemize}
+  \item \emph{delayed response}: \feat{best_lag}~$>0$ with \feat{lag_gain}~$>0.1$ and \feat{slope_corr}~$>0.4$;
+  \item \emph{missed peak}: \feat{peak_excess}~$>1$ with low bias outside the peaks;
+  \item \emph{unadapted shift}: $|\feat{bias}|>1.5$ and \feat{sign_run}~$>0.7$;
+  \item \emph{over-smoothing}: \feat{var_ratio}~$<0.6$ with a seasonally shaped residual.
+\end{itemize}
+The thresholds are starting points that the expert adjusts after seeing real clusters. The file is rendered into every system prompt, and its keys, with \code{other}, define the allowed values of \code{failure_type}.
+
+The second channel is feedback. In the interface an expert can confirm, reject or rename a cluster's diagnosis and add a note; the decisions are stored in \code{expert_feedback.json}, and confirmed diagnoses are injected as few-shot examples into the user message of the next run. This feedback loop is an optional extension of the core pipeline.
+
+% ================================================================ 3 EVALUATION
+\section{Evaluation protocol}
+\label{sec:eval}
+
+We evaluate on data with known, injected failures so that every window and every series has a ground-truth label, and compare against the naive alternative of asking Gemma alone. This section fixes the protocol; the tables report the quantities that \texttt{scripts/run\_eval.py} writes to \code{eval.json} and are filled from that file.
+
+\subsection{Data}
+
+\paragraph{Synthetic series with injected failures.}
+A generator produces daily series with level, linear trend, weekly seasonality with random amplitude and phase, an optional yearly term, and Gaussian noise of standard deviation $\sigma$. The default is 400 series with 365 history and 182 forecast days. A healthy forecast is $p_t=a_t+\varepsilon_t$ with $\varepsilon_t\sim\mathcal N(0,(0.35\sigma)^2)$, which gives a scaled absolute error of about 0.25. Each series receives exactly one type, by default 20\,\% each of \emph{healthy}, \emph{delayed response}, \emph{missed peak}, \emph{unadapted shift} and \emph{over-smoothing}. The failure is injected only inside one random contiguous segment of 42--91 forecast days, and the forecast is healthy outside it, so the gate has to do real work.
+\begin{itemize}
+  \item \emph{Delayed response}: a ramp is added to the actuals in the segment and $p_t=a_{t-k}+\varepsilon_t$ with $k\in\{2,3,4,5\}$ (never 7, which equals the weekly season and would be invisible).
+  \item \emph{Missed peak}: 4--8 spikes of height $3$--$6\sigma$ and width 1--3 days are added to the actuals; the forecast is the actual without the spikes plus noise.
+  \item \emph{Unadapted shift}: the actuals shift by $\Delta=\pm(4\text{--}8)\sigma$ from the segment start to the series end; inside the segment the forecast stays at the old level, afterwards it catches up.
+  \item \emph{Over-smoothing}: $p_t$ is level plus trend plus the seasonal term damped by $\alpha\in[0,0.3]$.
+\end{itemize}
+Model cards are drawn at random from five model descriptions, independently of the label, so the prompt cannot leak the answer. A window carries a failure label if at least 50\,\% of its rows do, else \emph{healthy}.
+
+\paragraph{Real data (qualitative).}
+For real data we use the M5 retail dataset~\cite{makridakis2022}, aggregated per item over all stores (top 1000 items, last 730 days), with rolling 28-day forecasts from seasonal-naive and AutoETS models via cross-validation. M5 has no failure labels, so it is reviewed qualitatively by the expert; it uses the quantile gate.
+
+\subsection{Metrics}
+
+Labelled runs are scored at four levels.
+\paragraph{Gate.} Precision, recall and F1 for the task ``window is not healthy''.
+\paragraph{Clustering.} On gated windows whose true label is not healthy: adjusted Rand index (ARI)~\cite{hubert1985}, normalised mutual information (NMI)~\cite{strehl2002}, purity $\frac1n\sum_c\max_\ell|c\cap\ell|$, the noise share, and the confusion matrix of cluster against true label.
+\paragraph{Naming accuracy.} The share of windows in clusters whose Gemma \code{failure_type} equals the cluster's majority true label,
+\begin{equation}
+  \mathrm{NamingAcc}=\frac{\sum_c n_c\,\Ind[\hat y_c=\mathrm{maj}(c)]}{\sum_c n_c}.
+\end{equation}
+\paragraph{Series accuracy.} The predicted type of a series is the \code{failure_type} of the cluster that holds most of its gated windows, and \emph{healthy} if none of its windows is gated; it is compared with the injected type. Gemma's \code{healthy_noise} counts as \emph{healthy}.
+
+\subsection{Gemma alone as baseline}
+
+The comparison that matters is against the naive solution (Figure~\ref{fig:eval}). In the baseline, each series is rendered as one chart (actual versus predicted with the forecast region shaded) and sent to Gemma~4 with the baseline prompt, the \emph{same} system prompt and taxonomy and the \emph{same} model; there are no residuals, features or clustering. Both methods are scored on exactly the same stratified sample of $n_{\text{base}}=40$ series (8 per class), against the injected type, with accuracy, macro-F1 and per-class accuracy. We also report the number of Gemma calls: the pipeline needs $k{+}1$ calls for the \emph{whole} dataset of $N$ series, the baseline one per series and so $N$ for the whole dataset. Wall time is recorded. Only the pipeline additionally localises \emph{where} in a series the failure happens (windows) and groups series that share a failure.
+
+\begin{figure}[t]
+  \centering
+  \input{figures/fig5_eval_design.tex}
+  \caption{Evaluation design. The pipeline and the Gemma-alone baseline use the same model, taxonomy and series, and are scored against the same injected labels; they differ in the processing before Gemma and in the number of calls.}
+  \label{fig:eval}
+\end{figure}
+
+\subsection{Results}
+
+Tables~\ref{tab:compare} and~\ref{tab:cluster} are templates that are filled from \code{eval.json} by \texttt{scripts/run\_eval.py} once the final runs exist. We report no numbers here before they are produced.
+
+\begin{table}[t]
+  \centering
+  \caption{Pipeline versus Gemma alone on the same $n_{\text{base}}$ series (template; values come from \code{eval.json}).}
+  \label{tab:compare}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    Method & Acc. & Macro-F1 & \multicolumn{2}{c}{Gemma calls} \\
+    \cmidrule(l){4-5}
+     & & & sample & full data \\
+    \midrule
+    Pipeline (ours) & \tbd & \tbd & \tbd & $k{+}1$ \\
+    Gemma alone & \tbd & \tbd & \tbd & $N$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \caption{Gate and clustering quality per embedder (template; values come from \code{eval.json}).}
+  \label{tab:cluster}
+  \small
+  \setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{@{}lcccccc@{}}
+    \toprule
+    Embedder & Gate F1 & ARI & NMI & Purity & Noise & Naming \\
+    \midrule
+    \texttt{features} & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+    \texttt{moment}   & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+    \texttt{both}     & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ================================================================ 4 IMPLEMENTATION
+\section{Implementation}
+\label{sec:impl}
+
+\paragraph{Engine and run folder.}
+The engine is a Python~3.11 package (\code{atlas}) with one module per stage; configuration is a pydantic model loaded from YAML and passed explicitly. A run writes a self-contained folder \code{runs/<name>/}: the resolved \code{config.json}, a copy of the dataset, \code{windows.parquet} (one row per window, with gate scores, features, embedding row, cluster and 2-D coordinates), \code{embeddings.npy}, \code{clusters.json}, the cluster panels in \code{images/}, raw Gemma replies, the executive summary \code{summary.json}, and, for labelled runs, \code{eval.json}. This folder is the only interface between the engine and the interface; the interface never runs the pipeline and only loads runs. Tests never call the network: the Gemini client is mocked.
+
+\paragraph{Atlas interface.}
+A Streamlit app presents four views: an \emph{Atlas} of cluster cards with Gemma's name, failure type, size, number of series, confidence and the executive summary; a \emph{Cluster} view with the diagnosis, the panel image, the feature table and the model mix; a \emph{Series} view with the full series and its gated windows coloured by cluster; and an \emph{Evaluation} view with the pipeline versus Gemma-alone comparison. Gemma text is rendered as plain text, a missing report shows ``explanation unavailable'', and a footer states that the diagnostics are suggestions, not guarantees.
+
+\paragraph{Open models and license.}
+Diagnoses come from Gemma~4~\cite{gemma4} through the Gemini API with the \texttt{google-genai} SDK; the default model is \code{gemma-4-26b-a4b-it} with \code{gemma-4-31b-it} as the alternative. In a smoke test the default model accepted, in a single call, an image, a system instruction, JSON mode and a pydantic \code{response_schema} of the full report shape, and returned a valid report in about 7 seconds. The larger model supports the same features but returned server errors (500/503) on 11 of 22 test calls, which is why the smaller one is the default. Gemma~4 weights are open (Apache-2.0); MOMENT-1 (MIT) is the optional encoder. The code is released under Apache-2.0.
+
+% ================================================================ 5 LIMITATIONS
+\section{Limitations}
+\label{sec:limits}
+
+\begin{itemize}
+  \item \emph{Synthetic evaluation.} Injected failures are cleaner than real ones; a high clustering score on synthetic data does not establish performance on M5, which is only reviewed qualitatively. Semi-synthetic injection into real actuals is a natural next step.
+  \item \emph{Taxonomy, thresholds and scale.} The pipeline recognises four failure types plus \code{other}; thresholds are starting points, and failures tied to calendar events, such as holiday weeks, need context that the core pipeline does not use. The features assume 28-step windows, a weekly season and univariate series.
+  \item \emph{Gate and clustering.} The gate trades recall for focus and may miss mild but systematic errors. Clustering can leave many windows unclustered or merge distinct patterns; MOMENT may hide error magnitude.
+  \item \emph{Language model.} Gemma can misname a cluster or propose causes that do not apply; the output is schema-validated but not fact-checked. The suggestions are hypotheses to test, not guarantees, and the replies depend on the model version and on API availability and rate limits.
+  \item \emph{Prompt injection.} Truncation, delimiting and tool-free use reduce but do not remove the risk of instructions hidden in user-supplied text.
+\end{itemize}
+
+% ================================================================ CONCLUSION
+\section{Conclusion}
+\label{sec:conclusion}
+
+TimeSeriousDoctor turns ``how does my forecast fail?'' from manual plot reading into a ranked list of explained, recurring failure patterns. Code measures and groups the errors, Gemma~4 explains each group once, and an expert-owned taxonomy is the shared vocabulary. The protocol of \S\ref{sec:eval} is built to show, on labelled data, how much this processing adds over asking Gemma alone.
+
+% ================================================================ REFERENCES
+\begin{thebibliography}{99}\footnotesize
+\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}
+\bibitem{hyndman2006} R.~J. Hyndman and A.~B. Koehler. Another look at measures of forecast accuracy. \emph{International Journal of Forecasting}, 22(4):679--688, 2006.
+\bibitem{campello2013} R.~J.~G.~B. Campello, D. Moulavi and J. Sander. Density-based clustering based on hierarchical density estimates. In \emph{PAKDD 2013}, LNCS 7819, pages 160--172, 2013.
+\bibitem{goswami2024} M. Goswami, K. Szafer, A. Choudhry, Y. Cai, S. Li and A. Dubrawski. MOMENT: A family of open time-series foundation models. In \emph{ICML}, PMLR 235, 2024.
+\bibitem{gemma4} Gemma Team, Google DeepMind. Gemma~4 open models: model card and documentation (\url{https://ai.google.dev/gemma}), 2026. See also Gemma Team, Gemma: Open models based on Gemini research and technology, arXiv:2403.08295, 2024.
+\bibitem{makridakis2022} S. Makridakis, E. Spiliotis and V. Assimakopoulos. M5 accuracy competition: Results, findings, and conclusions. \emph{International Journal of Forecasting}, 38(4):1346--1364, 2022.
+\bibitem{hubert1985} L. Hubert and P. Arabie. Comparing partitions. \emph{Journal of Classification}, 2(1):193--218, 1985.
+\bibitem{strehl2002} A. Strehl and J. Ghosh. Cluster ensembles---a knowledge reuse framework for combining multiple partitions. \emph{Journal of Machine Learning Research}, 3:583--617, 2002.
+\end{thebibliography}
+
+\end{document}
