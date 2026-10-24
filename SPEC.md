@@ -530,6 +530,11 @@ healthy_noise:
 
 **Owners.** **A** = Engine dev (CS). **B** = Gemma & App dev (CS). **C** = Data & Truth (time-series expert). **All** = whole team.
 
+> **Team split update (agreed at 0:50):** one Claude Code orchestrator session (driven by Tian) implements **all code** — every A and B task plus C's code tasks (P0.4, P0.10, P0.11, P1.3) — and pushes to `main` regularly. Humans don't edit `atlas/`, `scripts/`, `app.py` or `tests/` without telling Tian first.
+> - **Time-series expert:** P0.0 (M5 download), P0.3 (`taxonomy.yaml` — owned by the expert; the orchestrator never edits it), review `data/synthetic/preview.png` and the cluster panels, P1.9/P1.10 sanity check + taxonomy tuning, README "Expertise" section, expert feedback in the demo.
+> - **Presenter:** pitch deck + demo script (§14), README story sections (what it is / who it's for), F.3 video, F.6 submission + incognito check; first user of the app from Checkpoint 1.
+> - MOMENT (P1.2) is deferred until after Checkpoint 2.
+
 Rules: finish P0 before any P1. Within each level, work top to bottom. ★ = needed for the pitch. Time estimates assume Claude Code does most of the typing.
 
 ### P0 — vertical slice on synthetic data (target: done by 1:45)
