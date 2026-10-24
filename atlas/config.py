@@ -15,6 +15,7 @@ class GateConfig(BaseModel):
     mode: Literal["threshold", "quantile"] = "threshold"
     t_abs: float = 1.0
     t_bias: float = 0.75
+    t_peak: float = 3.0
     q: float = 0.25
 
 
