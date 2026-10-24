@@ -1,0 +1,57 @@
+delayed_response:
+  definition: The forecast follows the actuals but several steps late.
+  signature: best_lag > 0 with lag_gain > 0.1; residual correlates with the slope of actuals (slope_corr > 0.4).
+  causes:
+    - Over-reliance on recent lags (lag-1 / lag-7 features dominate the model)
+    - Missing leading indicators or exogenous drivers
+    - Refit or update frequency too low
+  fixes:
+    - Model differences or growth rates instead of levels
+    - Add leading indicators / exogenous features
+    - Retrain more often or use online updating
+  metric: Peak cross-correlation lag between forecast and actual; directional accuracy
+
+missed_peak:
+  definition: The forecast misses short spikes (promotions, events) and under-predicts at peaks.
+  signature: peak_excess > 1 with low bias outside the peaks.
+  causes:
+    - No event / promotion features
+    - Loss or aggregation that averages spikes away
+  fixes:
+    - Add event / promotion calendar features
+    - Quantile or peak-weighted loss
+    - Separate uplift model for events
+  metric: Error on top-decile actuals; peak hit rate
+
+unadapted_shift:
+  definition: Actuals move to a new level and the forecast stays at the old level for a long time.
+  signature: abs(bias) > 1.5 and sign_run > 0.7
+  causes:
+    - Structural break not represented in training data
+    - Long training window dominated by the old regime
+    - Tree-based models cannot predict beyond the target range seen in training
+  fixes:
+    - Shorter or recency-weighted training window
+    - Changepoint detection followed by refit
+    - Detrend / difference the target, or add a linear trend component for tree models
+  metric: Rolling bias; time-to-recover after a change point
+
+over_smoothing:
+  definition: The forecast is too flat and misses the amplitude of regular swings.
+  signature: var_ratio < 0.6; residual oscillates around zero with a seasonal shape.
+  causes:
+    - Heavy regularization or too few seasonal terms
+    - Averaging across a hierarchy
+    - Predicting the conditional mean under high uncertainty
+  fixes:
+    - Add or strengthen seasonal features (day-of-week, Fourier terms)
+    - Reduce regularization
+    - Check hierarchical reconciliation
+  metric: std(pred) / std(actual); seasonal amplitude ratio
+
+healthy_noise:
+  definition: Errors are elevated but show no systematic pattern.
+  signature: Low abs(bias), short sign runs, var_ratio near 1, no lag signature.
+  causes: [Irreducible noise, small-sample volatility]
+  fixes: [No model change; consider prediction intervals instead]
+  metric: Interval coverage
