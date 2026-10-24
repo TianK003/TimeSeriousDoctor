@@ -1,0 +1,36 @@
+{
+  "season": 7,
+  "window_len": 28,
+  "stride": 14,
+  "min_history": 56,
+  "max_lag": 7,
+  "embedder": "features",
+  "n_baseline": 40,
+  "cache_dir": "cache",
+  "runs_dir": "runs",
+  "gate": {
+    "mode": "quantile",
+    "t_abs": 1.0,
+    "t_bias": 0.75,
+    "t_peak": 3.0,
+    "q": 0.25
+  },
+  "cluster": {
+    "min_cluster_size": 20,
+    "max_clusters": 8,
+    "seed": 0
+  },
+  "moment": {
+    "model_size": "small",
+    "batch_size": 64,
+    "device": "cpu"
+  },
+  "gemma": {
+    "model": "gemma-4-26b-a4b-it",
+    "fallback_model": "gemma-4-31b-it",
+    "rpm": 10,
+    "temperature": 0.2,
+    "cache_dir": "cache\\gemma"
+  },
+  "data_dir": "data\\m5"
+}

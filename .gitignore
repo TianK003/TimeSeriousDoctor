@@ -13,6 +13,7 @@ __pycache__/
 /data/
 /runs/*
 !/runs/synth_features/
+!/runs/m5_features/
 /cache/
 
 # tooling scratch
