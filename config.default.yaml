@@ -13,6 +13,7 @@ gate:
   mode: threshold    # threshold | quantile
   t_abs: 1.0         # flag windows whose scaled absolute-error score exceeds this
   t_bias: 0.75       # ... or whose scaled bias score exceeds this
+  t_peak: 3.0        # ... or whose largest single scaled error exceeds this (short spikes)
   q: 0.25            # quantile mode: share of windows to keep
 
 cluster:
