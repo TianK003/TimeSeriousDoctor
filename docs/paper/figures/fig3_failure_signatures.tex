@@ -1,0 +1,72 @@
+% Fig. 3: the four failure signatures as 2x2 small multiples (closed-form curves, no data files).
+\begin{tikzpicture}
+  % (a) delayed response: slow wave; the forecast lags by k=4 (lag ramps in over steps 10..18)
+  \pgfmathdeclarefunction{fda}{1}{\pgfmathparse{2.2*sin(360*#1/30)+0.35*sin(360*0.31*#1)}}
+  \pgfmathdeclarefunction{fdap}{1}{\pgfmathparse{fda(#1-4*max(0,min(1,(#1-10)/8)))+0.15*sin(360*0.29*#1+120)}}
+  % (b) missed peak: weekly rhythm plus four spikes that the forecast does not contain
+  \pgfmathdeclarefunction{spk}{1}{\pgfmathparse{4.2*exp(-((#1-9)^2)/2)+5.0*exp(-((#1-20)^2)/2)+3.8*exp(-((#1-33)^2)/2)+4.6*exp(-((#1-47)^2)/2)}}
+  \pgfmathdeclarefunction{fdb}{1}{\pgfmathparse{0.9*sin(360*#1/7)+0.2*sin(360*0.37*#1)}}
+  \pgfmathdeclarefunction{fdbp}{1}{\pgfmathparse{0.9*sin(360*#1/7)+0.15*sin(360*0.29*#1+120)}}
+  % (c) unadapted shift: level +5.5 from step 14; the forecast stays low until step 44, then catches up
+  \pgfmathdeclarefunction{fdc}{1}{\pgfmathparse{0.9*sin(360*#1/7)+0.2*sin(360*0.37*#1)+5.5*max(0,min(1,#1-14))}}
+  \pgfmathdeclarefunction{fdcp}{1}{\pgfmathparse{0.9*sin(360*#1/7)+0.15*sin(360*0.29*#1+120)+5.5*max(0,min(1,(#1-44)/4))}}
+  % (d) over-smoothing: forecast seasonal amplitude damped to 25 % from step 12
+  \pgfmathdeclarefunction{fdd}{1}{\pgfmathparse{0.012*#1+2.0*sin(360*#1/7+30)+0.25*sin(360*0.37*#1)}}
+  \pgfmathdeclarefunction{fddp}{1}{\pgfmathparse{0.012*#1+(1-0.75*max(0,min(1,(#1-12)/4)))*2.0*sin(360*#1/7+30)+0.15*sin(360*0.29*#1+120)}}
+  \pgfplotsset{
+    fig3/.style={
+      scale only axis, width=7.0cm, height=3.0cm, xmin=0, xmax=56,
+      xtick={0,14,28,42,56}, axis line style={cio}, tick style={cio},
+      ymajorgrids, grid style={cgrid!60, line width=0.3pt},
+      tick label style={font=\sffamily\fontsize{6.5}{7}\selectfont},
+      label style={font=\sffamily\scriptsize},
+      title style={font=\sffamily\scriptsize, align=center, yshift=-1pt},
+      every axis plot/.append style={line width=0.6pt},
+    }
+  }
+  \begin{groupplot}[
+      group style={group size=2 by 2, horizontal sep=1.3cm, vertical sep=1.75cm,
+                   x descriptions at=edge bottom},
+      fig3, xlabel={forecast step $j$}
+    ]
+    % ---------------------------------------------------------------- (a) delayed response
+    \nextgroupplot[ymin=-3.2, ymax=4.6, ytick={-2,0,2,4}, ylabel={scaled value},
+        title={\textbf{(a) Delayed response}\\\figsub{\feat{best_lag}$>0$, \feat{lag_gain}$>0.1$, \feat{slope_corr}$>0.4$}}]
+      \addplot[draw=none, fill=cgate, forget plot] coordinates {(18,-3.2)(56,-3.2)(56,4.6)(18,4.6)} \closedcycle;
+      \addplot[cact, samples at={0,1,...,56}] {fda(x)};
+      \addplot[cpred, samples at={0,1,...,56}] {fdap(x)};
+      \draw[cio, dotted, line width=0.5pt] (axis cs:37.5,2.7) -- (axis cs:37.5,3.7) (axis cs:41.5,2.7) -- (axis cs:41.5,3.7);
+      \draw[<->, cio, line width=0.5pt] (axis cs:37.5,3.5) -- (axis cs:41.5,3.5)
+        node[pos=1, font=\sffamily\fontsize{6.5}{7}\selectfont, text=cio, anchor=west, xshift=2pt] {lag $k=4$};
+    % ---------------------------------------------------------------- (b) missed peak
+    \nextgroupplot[ymin=-2.4, ymax=8.2, ytick={0,4,8},
+        title={\textbf{(b) Missed peak}\\\figsub{\feat{peak_excess}$>1$, low bias away from peaks}}]
+      \foreach \xl/\xr in {6.5/11.5, 17.5/22.5, 30.5/35.5, 44.5/49.5}
+        \addplot[draw=none, fill=cgate, forget plot] coordinates {(\xl,-2.4)(\xr,-2.4)(\xr,8.2)(\xl,8.2)} \closedcycle;
+      \addplot[cact, samples at={0,1,...,56}] {fdb(x)+spk(x)};
+      \addplot[cpred, samples at={0,1,...,56}] {fdbp(x)};
+      \draw[->, cio, line width=0.5pt] (axis cs:25.5,6.2) -- (axis cs:21.2,5.2)
+        node[pos=0, right, font=\sffamily\fontsize{6.5}{7}\selectfont, text=cio, anchor=west] {peak not predicted};
+    % ---------------------------------------------------------------- (c) unadapted shift
+    \nextgroupplot[ymin=-2.6, ymax=8.2, ytick={0,4,8}, ylabel={scaled value},
+        title={\textbf{(c) Unadapted shift}\\\figsub{$|\feat{bias}|>1.5$, \feat{sign_run}$>0.7$}}]
+      \addplot[draw=none, fill=cgate, forget plot] coordinates {(15,-2.6)(44,-2.6)(44,8.2)(15,8.2)} \closedcycle;
+      \addplot[cact, samples at={0,1,...,56}] {fdc(x)};
+      \addplot[cpred, samples at={0,1,...,56}] {fdcp(x)};
+      \draw[<->, cio, line width=0.5pt] (axis cs:29.5,0.2) -- (axis cs:29.5,5.3);
+      \node[font=\sffamily\fontsize{6.5}{7}\selectfont, text=cio, anchor=west, fill=cgate, inner sep=1pt] at (axis cs:30.3,2.75) {level shift $\Delta$};
+    % ---------------------------------------------------------------- (d) over-smoothing
+    \nextgroupplot[ymin=-3.4, ymax=4.6, ytick={-2,0,2,4},
+        title={\textbf{(d) Over-smoothing}\\\figsub{\feat{var_ratio}$<0.6$, seasonal residual}}]
+      \addplot[draw=none, fill=cgate, forget plot] coordinates {(14,-3.4)(56,-3.4)(56,4.6)(14,4.6)} \closedcycle;
+      \addplot[cact, samples at={0,1,...,56}] {fdd(x)};
+      \addplot[cpred, samples at={0,1,...,56}] {fddp(x)};
+      \draw[<->, cio, line width=0.5pt] (axis cs:35.5,0.15) -- (axis cs:35.5,2.5);
+      \node[font=\sffamily\fontsize{6.5}{7}\selectfont, text=cio, anchor=south west, fill=cgate, inner sep=1pt] at (axis cs:36.2,-3.2) {swings too small};
+  \end{groupplot}
+  % shared legend
+  \node[anchor=south, font=\sffamily\scriptsize] at ($(group c1r1.north east)!0.5!(group c2r1.north west)+(0,1.0cm)$)
+    {\tikz[baseline=-0.5ex]\draw[cact, line width=0.8pt] (0,0)--(0.5,0); actual $a_t$ \quad
+     \tikz[baseline=-0.5ex]\draw[cpred, line width=0.8pt] (0,0)--(0.5,0); forecast $p_t$ \quad
+     \tikz[baseline=-0.5ex]\fill[cgate] (0,-0.08) rectangle (0.5,0.08); region where the failure acts};
+\end{tikzpicture}

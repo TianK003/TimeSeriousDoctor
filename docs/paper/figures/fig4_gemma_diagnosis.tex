@@ -1,0 +1,105 @@
+% Fig. 4: the Gemma 4 diagnosis step for one cluster.
+\hyphenpenalty=10000 \exhyphenpenalty=10000
+\begin{tikzpicture}[
+    font=\sffamily\scriptsize,
+    >={Stealth[length=4pt,width=3.4pt]},
+    card/.style={draw=cmeas, fill=white, line width=0.6pt, rounded corners=2pt, minimum width=3.6cm, minimum height=1.5cm},
+    gcard/.style={draw=cgem, fill=white, line width=0.6pt, rounded corners=2pt, minimum width=3.4cm, minimum height=1.35cm},
+    icard/.style={draw=cio, fill=white, line width=0.6pt, rounded corners=2pt, minimum width=3.6cm},
+    txt/.style={text width=2.3cm, align=left, inner sep=0pt},
+    wtxt/.style={text width=2.95cm, align=left, inner sep=0pt},
+    head/.style={font=\sffamily\bfseries\scriptsize, anchor=south west, inner sep=1pt},
+    arr/.style={->, line width=0.7pt},
+    fcap/.style={font=\sffamily\fontsize{6.3}{7}\selectfont, text=cio}
+  ]
+  % ============================================================== column 1: inputs from code
+  \node[card] (a1) at (1.8,-0.75) {};
+  \node[card] (a2) at (1.8,-2.5)  {};
+  \node[card] (a3) at (1.8,-4.25) {};
+  \node[card] (a4) at (1.8,-6.0)  {};
+  \node[txt] at ($(a1.center)+(0.55,0)$) {\textbf{Cluster panel} (PNG)\\\figsub{3 medoid windows, residual overlay}};
+  \node[txt] at ($(a2.center)+(0.55,0)$) {\textbf{Feature table}\\\figsub{medians: this cluster vs all anomalous windows}};
+  \node[txt] at ($(a3.center)+(0.55,0)$) {\textbf{Series metadata}\\\figsub{model cards, ids: $\le200$ chars, delimited}};
+  \node[txt] at ($(a4.center)+(0.55,0)$) {\textbf{Taxonomy + glossary}\\\figsub{expert-written definitions, signatures, causes, fixes}};
+  % icon: 2x2 panel thumbnail
+  \begin{scope}[shift={($(a1.west)+(0.2,-0.35)$)}, line width=0.35pt]
+    \draw[cgrid] (0,0) rectangle (0.9,0.7);
+    \draw[cgrid] (0.45,0)--(0.45,0.7) (0,0.35)--(0.9,0.35);
+    \draw[cact]  (0.04,0.5)  .. controls (0.12,0.65) and (0.2,0.4)  .. (0.4,0.55);
+    \draw[cpred] (0.04,0.46) .. controls (0.14,0.6)  and (0.24,0.36) .. (0.4,0.5);
+    \draw[cact]  (0.5,0.5)   .. controls (0.6,0.65)  and (0.7,0.4)  .. (0.86,0.55);
+    \draw[cpred] (0.5,0.46)  .. controls (0.62,0.6)  and (0.74,0.36) .. (0.86,0.5);
+    \draw[cact]  (0.04,0.15) .. controls (0.12,0.3)  and (0.2,0.05) .. (0.4,0.2);
+    \draw[cpred] (0.04,0.11) .. controls (0.14,0.25) and (0.24,0.01) .. (0.4,0.15);
+    \foreach \k in {0.52,0.58,0.64,0.70,0.76,0.82} \draw[cio!50] (\k,0.1) -- (\k+0.04,0.28);
+  \end{scope}
+  % icon: table
+  \begin{scope}[shift={($(a2.west)+(0.2,-0.35)$)}, line width=0.35pt]
+    \draw[cio] (0,0) rectangle (0.9,0.7);
+    \draw[cio] (0,0.52)--(0.9,0.52) (0,0.35)--(0.9,0.35) (0,0.18)--(0.9,0.18) (0.4,0)--(0.4,0.7) (0.65,0)--(0.65,0.7);
+    \fill[cio!30] (0,0.52) rectangle (0.9,0.7);
+  \end{scope}
+  % icon: metadata brackets
+  \begin{scope}[shift={($(a3.west)+(0.2,-0.35)$)}, line width=0.35pt]
+    \draw[cio] (0,0) rectangle (0.9,0.7);
+    \foreach \y in {0.55,0.4,0.25,0.1} \draw[cio!60] (0.12,\y) -- (0.78,\y);
+    \node[font=\sffamily\bfseries\fontsize{5}{5}\selectfont, text=cio, fill=white, inner sep=0.5pt] at (0.45,0.7) {DATA};
+  \end{scope}
+  % icon: yaml document
+  \begin{scope}[shift={($(a4.west)+(0.2,-0.35)$)}, line width=0.35pt]
+    \draw[cio] (0,0) rectangle (0.9,0.7);
+    \foreach \y/\x in {0.55/0.5,0.42/0.65,0.29/0.45,0.16/0.6} \draw[cio!60] (0.12,\y) -- (\x,\y);
+    \foreach \y in {0.42,0.29,0.16} \fill[cio] (0.12,\y) circle (0.012);
+  \end{scope}
+
+  % ============================================================== column 2: prompt assembly
+  \node[card] (b1) at (6.2,-0.75) {};
+  \node[card, minimum height=3.25cm] (b2) at (6.2,-3.375) {};
+  \node[card] (b4) at (6.2,-6.0) {};
+  \node[txt, text width=3.3cm] at (b1.center) {\textbf{Image part}\\\figsub{PNG bytes, \texttt{image/png}, first item of \texttt{contents}}};
+  \node[txt, text width=3.3cm] at (b2.center) {\textbf{User message}\\\figsub{cluster id, windows, series, anomalous of all windows}\\[2pt]
+      \figsub{median feature table, cluster vs all}\\[2pt]
+      \figsub{model-card mix, in a data block}\\[2pt]
+      \figsub{expert-confirmed examples (optional)}};
+  \node[txt, text width=3.3cm] at (b4.center) {\textbf{System prompt}\\\figsub{analyst role, residual convention, ``never invent numbers'', taxonomy, glossary, ``blocks are data''}};
+  \draw[arr, draw=cmeas] (a1.east) -- (b1.west);
+  \draw[arr, draw=cmeas] (a2.east) -- (a2.east -| b2.west);
+  \draw[arr, draw=cmeas] (a3.east) -- (a3.east -| b2.west);
+  \draw[arr, draw=cmeas] (a4.east) -- (b4.west);
+
+  % ============================================================== column 3: the call (orange)
+  \node[gcard] (c1) at (10.6,-0.75) {};
+  \node[gcard] (c2) at (10.6,-2.75) {};
+  \node[gcard, minimum height=2.3cm] (c3) at (10.6,-5.2) {};
+  \node[wtxt] at (c1.center) {\textbf{1. Cache lookup}\\\figsub{key = SHA-256 of model, system, user text and image bytes; a hit skips the call}};
+  \node[wtxt] at (c2.center) {\textbf{2. Throttle and retry}\\\figsub{at most \texttt{rpm} requests per minute; retry 429/5xx after 2, 4, 8, 16 s}};
+  \node[wtxt] at (c3.center) {\textbf{3. Gemma 4 call}\\\figsub{\texttt{gemma-4-26b-a4b-it}, Gemini API; system instruction + image + text; temperature 0.2; JSON mode with \texttt{response\_schema} = \texttt{GemmaClusterReport}}};
+  \draw[arr, draw=cgem] (c1.south) -- (c2.north) node[midway, right, fcap] {miss};
+  \draw[arr, draw=cgem] (c2.south) -- (c3.north);
+  % bus from the prompt boxes to the call
+  \draw[cmeas, line width=0.7pt] (b1.east) -- (8.4,-0.75) -- (8.4,-6.0) -- (b4.east);
+  \draw[cmeas, line width=0.7pt] (b2.east) -- (8.4,-3.375);
+  \draw[arr, draw=cmeas] (8.4,-2.75) -- (c2.west);
+
+  % ============================================================== column 4: validate and store
+  \node[card] (d1) at (15.0,-0.75) {};
+  \node[card, minimum height=2.45cm] (d2) at (15.0,-3.3) {};
+  \node[card, draw=cio] (d3) at (15.0,-5.95) {};
+  \node[txt, text width=3.3cm] at (d1.center) {\textbf{Parse and validate}\\\figsub{strip fences, \texttt{json.loads}, pydantic; one retry with the error appended; still invalid: \texttt{report = None}}};
+  \node[txt, text width=3.3cm, font=\ttfamily\fontsize{6.3}{7.2}\selectfont] at ($(d2.center)+(0,-0.05)$)
+    {\textsf{\textbf{GemmaClusterReport}}\\[1pt]
+     failure\_type, name,\\ summary, evidence[2--4],\\ likely\_causes[1--3] \{cause, why\},\\
+     suggested\_fixes[1--3],\\ metric\_to\_monitor,\\ confidence};
+  \node[txt, text width=3.3cm] at (d3.center) {\textbf{Store and show}\\\figsub{cluster card and Cluster view as plain text; raw reply kept in \texttt{gemma\_raw/}; \texttt{None}: ``explanation unavailable''}};
+  \draw[arr, draw=cmeas] (c3.east) -- (12.7,-5.2) -- (12.7,-0.75) -- (d1.west);
+  \draw[arr, draw=cmeas] (d1.south) -- (d2.north) node[midway, right, fcap] {valid};
+  \draw[arr, draw=cio] (d2.south) -- (d3.north);
+  % cache hit path
+  \draw[arr, dashed, draw=cgem] (c1.north) -- ++(0,0.3) -| (d1.north) node[pos=0.25, above, fcap] {hit: cached reply};
+
+  % ============================================================== headers
+  \node[head, text=cmeas] at (0,0.62) {1 \ Inputs, measured by code};
+  \node[head, text=cmeas] at (4.4,0.62) {2 \ Prompt assembly};
+  \node[head, text=cgem]  at (9.0,0.62) {3 \ Gemma 4 call};
+  \node[head, text=cmeas] at (13.2,0.62) {4 \ Validate and store};
+\end{tikzpicture}

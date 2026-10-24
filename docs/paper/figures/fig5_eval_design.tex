@@ -1,0 +1,33 @@
+% Fig. 5: evaluation design, pipeline versus Gemma alone (column width).
+\hyphenpenalty=10000 \exhyphenpenalty=10000
+\begin{tikzpicture}[
+    font=\sffamily\scriptsize,
+    >={Stealth[length=4pt,width=3.4pt]},
+    bx/.style={draw=cio, fill=white, line width=0.6pt, rounded corners=2pt, align=center, inner sep=3pt},
+    cb/.style={bx, draw=cmeas, text width=3.45cm},
+    gb/.style={bx, draw=cgem, text width=3.45cm},
+    arr/.style={->, line width=0.7pt}
+  ]
+  \node[bx, text width=7.5cm] (ds) at (4.05,0)
+    {\textbf{Labelled synthetic dataset}\\\figsub{$N$ series, 5 types (one injected failure segment each), ground-truth labels}};
+  \node[cb, minimum height=2.7cm] (pip) at (1.95,-3.15)
+    {\textbf{Pipeline}\\[1pt]\figsub{residuals, gate, features, clusters, cluster panels, on the whole dataset}\\[2pt]
+     \figsub{series label = type of the cluster holding most of its gated windows}\\[2pt]
+     \textcolor{cmeas}{\textbf{$k{+}1$ Gemma calls}}};
+  \node[bx, text width=3.45cm] (smp) at (6.15,-1.55)
+    {\textbf{Stratified sample}\\\figsub{$n_{\text{base}}=40$ series, 8 per class}};
+  \node[gb, minimum height=1.55cm] (alo) at (6.15,-3.7)
+    {\textbf{Gemma alone}\\[1pt]\figsub{one chart per series (actual vs forecast); no residuals, features or clusters}\\[2pt]
+     \textcolor{cgem}{\textbf{1 call per series}}};
+  \node[bx, text width=7.5cm] (sc) at (4.05,-6.4)
+    {\textbf{Score on the same sample}\\\figsub{series-level type vs injected type: accuracy, macro-F1, per-class accuracy, Gemma calls, wall time; \texttt{healthy\_noise} counts as healthy}};
+  \begin{scope}[on background layer]
+    \node[fit=(pip)(smp)(alo), draw=cio, dashed, line width=0.5pt, rounded corners=3pt, inner xsep=5pt, inner ysep=5pt,
+          label={[font=\sffamily\fontsize{6.3}{7}\selectfont, text=cio, yshift=1pt]below:same model, same taxonomy, same series}] (frame) {};
+  \end{scope}
+  \draw[arr, draw=cmeas] (ds.south -| pip.north) -- (pip.north);
+  \draw[arr, draw=cio]   (ds.south -| smp.north) -- (smp.north);
+  \draw[arr, draw=cgem]  (smp.south) -- (alo.north);
+  \draw[arr, draw=cio]   (pip.south) -- (pip.south |- sc.north);
+  \draw[arr, draw=cio]   (alo.south) -- (alo.south |- sc.north);
+\end{tikzpicture}
