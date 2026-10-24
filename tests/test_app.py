@@ -1,14 +1,17 @@
-"""AppTest coverage for the Series tab, Evaluation tab and Atlas scatter (SPEC §7.12)."""
+"""AppTest coverage for the app tabs, expert review, latent-space map, dark mode and run selection (SPEC §7.12)."""
 
 import base64
 import json
+import os
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from atlas.schema import load_run
 from scripts.make_mock_run import main
 
 APP = str(Path(__file__).resolve().parent.parent / "app.py")
@@ -55,9 +58,9 @@ def metrics(at: AppTest) -> dict[str, tuple[str, str]]:
 def test_every_tab_renders(mock_runs, monkeypatch):
     at = run_app(mock_runs, monkeypatch)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Atlas", "Cluster", "Series", "Evaluation"]
-    # atlas scatter, model mix, series figure, comparison bars, confusion heatmap
-    assert len(figures(at)) == 5
+    assert [t.label for t in at.tabs] == ["Atlas", "Latent space", "Cluster", "Series", "Evaluation"]
+    # figure order: atlas scatter, latent map, model mix, series figure, series latent map, bars, heatmap
+    assert len(figures(at)) == 7
     assert not [i.value for i in at.info if "Coming soon" in i.value]
 
 
@@ -85,7 +88,7 @@ def test_series_tab_shows_figure_and_window_table(mock_runs, monkeypatch):
     at = run_app(mock_runs, monkeypatch, series_id="S01")
     assert not at.exception
     assert at.selectbox(key="series_id").value == "S01"
-    fig = figures(at)[2]
+    fig = figures(at)[3]
     assert fig["layout"]["title"]["text"] == "Series S01"
     table = at.dataframe[-1].value  # last dataframe on the page = series windows
     assert list(table.columns) == ["window_id", "start_ts", "cluster", "cluster name", "abs_err", "bias"]
@@ -103,7 +106,7 @@ def test_show_in_series_tab_button(mock_runs, monkeypatch):
     assert not at.exception
     assert at.session_state["series_id"] == sid
     assert at.selectbox(key="series_id").value == sid
-    assert figures(at)[2]["layout"]["title"]["text"] == f"Series {sid}"
+    assert figures(at)[3]["layout"]["title"]["text"] == f"Series {sid}"
     assert f"Series {sid} selected" in "\n".join(s.value for s in at.success)
 
 
@@ -130,7 +133,7 @@ def test_evaluation_headline(mock_runs, monkeypatch):
 
 
 def test_evaluation_charts(mock_runs, monkeypatch):
-    bars, heat = figures(run_app(mock_runs, monkeypatch))[3:5]
+    bars, heat = figures(run_app(mock_runs, monkeypatch))[5:7]
     assert [t["name"] for t in bars["data"]] == ["TimeSeriousDoctor", "Gemma alone"]
     assert bars["data"][0]["x"][0] == "overall" and len(bars["data"][0]["x"]) == 5
     assert bars["data"][0]["y"][0] == pytest.approx(80) and bars["data"][1]["y"][0] == pytest.approx(45)
@@ -146,7 +149,7 @@ def test_evaluation_without_eval_json_shows_info(mock_runs, tmp_path, monkeypatc
     assert not at.exception
     assert any("No eval.json for this run" in i.value and "scripts/run_eval.py" in i.value for i in at.info)
     assert "TimeSeriousDoctor accuracy" not in metrics(at)
-    assert len(figures(at)) == 3  # scatter, model mix, series figure
+    assert len(figures(at)) == 5  # scatter, latent map, model mix, series figure, series latent map
 
 
 def test_evaluation_without_comparison(mock_runs, tmp_path, monkeypatch):
@@ -158,7 +161,7 @@ def test_evaluation_without_comparison(mock_runs, tmp_path, monkeypatch):
     assert not at.exception
     m = metrics(at)
     assert "TimeSeriousDoctor accuracy" not in m and "Precision" in m
-    assert len(figures(at)) == 4  # no comparison bars, heatmap still there
+    assert len(figures(at)) == 6  # no comparison bars, heatmap still there
 
 
 def test_evaluation_tolerates_missing_numbers(mock_runs, tmp_path, monkeypatch):
@@ -272,3 +275,141 @@ def test_saved_verdict_is_prefilled_when_reopening(mock_runs, tmp_path, monkeypa
     assert at.text_input(key="expert_name_0").value == "Promo lag"
     assert at.selectbox(key="expert_type_0").value == "missed_peak"
     assert at.text_area(key="expert_note_0").value == "see wiki"
+
+
+# ------------------------------------------------- latent space, theme, loader cache, default run
+
+def trace_names(fig: dict) -> list[str]:
+    return [t["name"] for t in fig["data"]]
+
+
+def test_latent_tab_renders_with_modes_and_controls(mock_runs, monkeypatch):
+    at = run_app(mock_runs, monkeypatch)
+    assert not at.exception
+    assert at.radio(key="latent_mode").options == ["All windows (feature space)", "Anomalous windows (cluster embedding)"]
+    assert at.selectbox(key="latent_color").options == ["Cluster", "True label (synthetic data)", "Series"]
+    highlight = at.selectbox(key="latent_highlight")
+    assert highlight.options[0] == "(none)" and len(highlight.options) == 21
+    latent = figures(at)[1]
+    names = trace_names(latent)
+    assert "normal (not anomalous)" in names and "0: Forecast lags actuals by days" in names
+    assert sum(len(t["customdata"]) for t in latent["data"]) == 100  # every window; customdata = window_id
+    assert any("Click a point on the map" in i.value for i in at.info)
+
+
+def test_latent_modes_color_and_highlight(mock_runs, monkeypatch):
+    at = run_app(mock_runs, monkeypatch)
+    at.radio(key="latent_mode").set_value("Anomalous windows (cluster embedding)").run()
+    assert not at.exception
+    anomalous = figures(at)[1]
+    assert "normal (not anomalous)" not in trace_names(anomalous)
+    assert sum(len(t["customdata"]) for t in anomalous["data"]) == 44  # only the gated windows
+
+    at.selectbox(key="latent_color").select("true_label").run()
+    assert not at.exception
+    assert "delayed_response" in trace_names(figures(at)[1])
+
+    at.selectbox(key="latent_highlight").select("S01").run()
+    assert not at.exception
+    assert trace_names(figures(at)[1])[-1] == "selected series"
+
+
+def test_series_tab_has_small_latent_map_highlighting_the_series(mock_runs, monkeypatch):
+    at = run_app(mock_runs, monkeypatch, series_id="S05")
+    small = figures(at)[4]
+    assert trace_names(small)[-1] == "selected series"
+    assert small["layout"]["showlegend"] is False and small["layout"]["height"] == 340
+
+
+def test_clicking_a_point_shows_window_and_cluster_explanation(mock_runs, monkeypatch):
+    run = load_run(mock_runs / "mock")
+    wid = run.windows.loc[run.windows["cluster"] == 0, "window_id"].iloc[0]
+    sid = wid.split("#")[0]
+    selection = {"selection": {"points": [{"customdata": wid, "point_index": 0}], "point_indices": [0],
+                               "box": [], "lasso": []}}
+    at = run_app(mock_runs, monkeypatch, latent_plot=selection)
+    assert not at.exception
+    assert len(figures(at)) == 8  # + the window figure beside the map
+    assert any(fig["layout"]["title"]["text"].startswith(wid) for fig in figures(at))
+    assert not any("Click a point on the map" in i.value for i in at.info)
+    assert "delayed response" in markdown_text(at)  # the cluster's failure type badge
+    assert "The forecast follows the actuals with a delay" in markdown_text(at)  # Gemma's summary
+    at.button(key="latent_show_series").click().run()
+    assert not at.exception and at.session_state["series_id"] == sid
+    at.button(key="latent_open_cluster").click().run()
+    assert at.session_state["cluster_id"] == 0
+
+
+def test_unknown_selection_is_ignored(mock_runs, monkeypatch):
+    selection = {"selection": {"points": [{"customdata": "nope#1"}], "point_indices": [], "box": [], "lasso": []}}
+    at = run_app(mock_runs, monkeypatch, latent_plot=selection)
+    assert not at.exception
+    assert len(figures(at)) == 7
+
+
+def test_dark_mode_toggle_switches_templates_and_injects_css(mock_runs, monkeypatch):
+    light = run_app(mock_runs, monkeypatch)
+    assert light.sidebar.toggle(key="dark_mode").label == "🌙 Dark mode"
+    assert not any("<style>" in m.value for m in light.markdown)
+    assert all(pc.proto.theme == "" for pc in light.get("plotly_chart"))  # theme=None keeps our plotly template
+
+    at = run_app(mock_runs, monkeypatch)
+    at.sidebar.toggle(key="dark_mode").set_value(True).run()
+    assert not at.exception
+    assert at.sidebar.toggle(key="dark_mode").label == "☀️ Light mode"
+    assert any("<style>" in m.value for m in at.markdown)
+    assert len(figures(at)) == 7
+
+    def backgrounds(a: AppTest) -> set[str]:
+        return {f["layout"]["template"]["layout"]["paper_bgcolor"] for f in figures(a)}
+
+    assert len(backgrounds(light)) == 1 and len(backgrounds(at)) == 1  # one template for every figure
+    assert backgrounds(light) != backgrounds(at)
+
+
+def test_loader_cache_picks_up_files_written_after_first_load(mock_runs, tmp_path, monkeypatch):
+    run_dir = copy_run(mock_runs, tmp_path)
+    (run_dir / "eval.json").unlink()
+    at = run_app(tmp_path, monkeypatch)
+    assert any("No eval.json" in i.value for i in at.info) and "TimeSeriousDoctor accuracy" not in metrics(at)
+
+    shutil.copy(mock_runs / "mock" / "eval.json", run_dir / "eval.json")
+    verdict = {"status": "confirmed", "name": "x", "failure_type": "other", "note": "", "gemma_name": "x",
+               "summary": "", "feature_median": {}}
+    (run_dir / "expert_feedback.json").write_text(json.dumps({"0": verdict}), encoding="utf-8")
+    newest = max(p.stat().st_mtime for p in run_dir.iterdir() if p.is_file())
+    for name in ("eval.json", "expert_feedback.json"):
+        os.utime(run_dir / name, (newest + 10, newest + 10))  # clusters.json keeps its old mtime
+    at.run()
+    assert not at.exception
+    assert metrics(at)["TimeSeriousDoctor accuracy"][0] == "80%"
+    assert "✔ Expert-confirmed" in markdown_text(at)
+
+
+def make_runs(tmp_path: Path, mock_runs: Path, ages: dict[str, float]) -> Path:
+    """A runs dir with copies of the mock run; every file of run `name` gets mtime = now - ages[name] seconds."""
+    runs = tmp_path / "runs"
+    for name, age in ages.items():
+        shutil.copytree(mock_runs / "mock", runs / name)
+        t = time.time() - age
+        for p in (runs / name).iterdir():
+            if p.is_file():
+                os.utime(p, (t, t))
+    return runs
+
+
+def test_default_run_prefers_newest_non_mock_run(mock_runs, tmp_path, monkeypatch):
+    runs = make_runs(tmp_path, mock_runs, {"mock": 0, "old_run": 5000, "new_run": 1000})  # mock is the newest
+    at = run_app(runs, monkeypatch)
+    assert not at.exception
+    sel = at.sidebar.selectbox[0]
+    assert sel.value == "new_run"
+    assert sel.options == ["mock (demo data)", "new_run", "old_run"]  # mock stays selectable, labeled
+
+    sel.select("mock").run()  # an explicit choice sticks across reruns
+    assert at.sidebar.selectbox[0].value == "mock" and not at.exception
+
+
+def test_default_run_is_mock_when_it_is_the_only_one(mock_runs, tmp_path, monkeypatch):
+    at = run_app(make_runs(tmp_path, mock_runs, {"mock": 0}), monkeypatch)
+    assert at.sidebar.selectbox[0].value == "mock" and at.sidebar.selectbox[0].options == ["mock (demo data)"]
