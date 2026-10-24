@@ -115,7 +115,7 @@ class GemmaClient:
     # ------------------------------------------------------------ API call
 
     def _request(self, system: str, user: str, image: bytes | None, schema: type[T], tag: str) -> str:
-        """One logical request: throttled, retried on 429/500/503 with backoff; returns the raw text."""
+        """One logical request: throttled, retried on 429/500/503/504 and transport errors with backoff; returns the raw text."""
         client = self._get_client()
         contents: list = [user]
         if image is not None:
