@@ -428,9 +428,10 @@ def latent_coords(run: RunResult, mode: str) -> np.ndarray | None:
     """
     w = run.windows
     if mode == "all":
-        if not set(FEATURES) <= set(w.columns):
+        feats = [f for f in FEATURES if f in w.columns]  # older runs carry fewer features
+        if not feats:
             return None
-        return project_tsne(embed_features(w, FEATURES), keep=w["gated"].to_numpy(dtype=bool))
+        return project_tsne(embed_features(w, feats), keep=w["gated"].to_numpy(dtype=bool))
     emb = np.asarray(run.embeddings)
     if emb.ndim != 2 or len(emb) == 0:
         return None
