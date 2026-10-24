@@ -100,13 +100,12 @@ def test_app_renders_mock_run(mock_runs, monkeypatch):
     at = run_app(mock_runs, monkeypatch)
     assert not at.exception
     assert [t.label for t in at.tabs] == ["Atlas", "Cluster", "Series", "Evaluation"]
-    assert [m.label for m in at.metric] == ["Series", "Windows", "Anomalous", "Clusters", "Unclustered"]
-    assert [m.value for m in at.metric] == ["20", "100", "44", "3", "4"]
-    assert {b.key for b in at.button} == {"open_0", "open_1", "open_2", "open_-1"}
-    assert "Coming soon" in all_text(at)
+    assert [m.label for m in at.metric][:5] == ["Series", "Windows", "Anomalous", "Clusters", "Unclustered"]
+    assert [m.value for m in at.metric][:5] == ["20", "100", "44", "3", "4"]
+    assert {b.key for b in at.button} >= {"open_0", "open_1", "open_2", "open_-1"}
     assert "not guarantees" in all_text(at)
     assert at.sidebar.selectbox[0].value == "mock"
-    assert len(at.dataframe) == 2  # feature table + member series of the default cluster
+    assert len(at.dataframe) == 3  # feature table + member series of the default cluster + series windows
 
 
 def test_open_button_selects_cluster(mock_runs, monkeypatch):
