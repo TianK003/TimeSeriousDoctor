@@ -1,9 +1,10 @@
 """Streamlit entry point.
 
-Atlas, Latent space, Cluster, Series and Evaluation tabs over a precomputed run folder (SPEC.md §7.12).
-Runs are produced by the CLI (`python scripts/run_atlas.py`, or `python scripts/make_mock_run.py`
-for a fake one); the app only reads them, except the expert review in the Cluster tab, which writes
-`expert_feedback.json` into the run folder. Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
+Atlas, Latent space, Cluster, Series, Evaluation and Ask the Doctor tabs over a precomputed run folder
+(SPEC.md §7.12). Runs are produced by the CLI (`python scripts/run_atlas.py`, or
+`python scripts/make_mock_run.py` for a fake one); the app only reads them, except the expert review in
+the Cluster tab, which writes `expert_feedback.json` into the run folder. Ask the Doctor is the only
+live Gemma call in the app (needs an API key). Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
 """
 
 from __future__ import annotations
@@ -19,7 +20,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from atlas.chat import answer_question, short_taxonomy
 from atlas.cluster import embed_features, project_tsne
+from atlas.config import GemmaConfig, get_api_key
 from atlas.features import FEATURES
 from atlas.plots import atlas_scatter, cluster_name_map, latent_figure, series_figure, window_figure
 from atlas.schema import CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, RunResult, list_runs, load_run
@@ -51,6 +54,14 @@ LATENT_MODES = {  # radio label -> mode
 LATENT_COLOR_LABELS = {"cluster": "Cluster", "true_label": "True label (synthetic data)", "series_id": "Series"}
 PIPELINE_COLOR = "#4c78a8"
 GEMMA_ALONE_COLOR = "#e45756"
+CHAT_SCOPES = ["Whole run", "A cluster", "A series"]
+CHAT_EXAMPLES = [
+    "Why is the model failing here?",
+    "What should we fix first?",
+    "Which forecasting models fail most, and how?",
+]
+CHAT_NO_KEY = "Ask the Doctor needs a Gemma API key (GEMMA4_API_KEY in .env). The rest of the atlas works without it."
+CHAT_NO_ANSWER = "Gemma didn't answer (API busy) — try again in a moment."
 
 _MD_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|<>~$:&])")
 
@@ -762,6 +773,122 @@ def tab_evaluation(run: RunResult, tpl: str) -> None:
         plot(_confusion_figure(run, confusion, tpl))
 
 
+# ------------------------------------------------------------------- Ask the Doctor
+
+@st.cache_resource
+def chat_client():
+    """One Gemma client for every chat question: throttled, answers cached on disk, no raw dumps."""
+    from atlas.gemma import GemmaClient  # imported late: the rest of the app does not need the Gemini SDK
+
+    return GemmaClient(GemmaConfig(), raw_dir=None)
+
+
+def _taxonomy_text() -> str:
+    try:
+        return short_taxonomy(load_taxonomy())
+    except (OSError, ValueError):  # no taxonomy.yaml next to the app: the context just goes without it
+        return ""
+
+
+def _chat_scope(run: RunResult) -> tuple[int | None, str | None, str]:
+    """Scope selector -> (cluster_id, series_id, label shown above the question)."""
+    scope = st.radio("Scope", CHAT_SCOPES, horizontal=True, key="chat_scope")
+    if scope == "A cluster":
+        ids = [c.cluster_id for c in run.clusters]
+        if not ids:
+            st.info("This run has no clusters.")
+            return None, None, "whole run"
+        if st.session_state.get("chat_cluster") not in ids:
+            st.session_state.pop("chat_cluster", None)
+        default = st.session_state.get("cluster_id")
+        cid = st.selectbox(
+            "Cluster", ids, key="chat_cluster", index=ids.index(default) if default in ids else 0,
+            format_func=lambda i: f"{i}: {run_title(run, run.cluster(i))}" if i >= 0 else run_title(run, run.cluster(i)),
+        )
+        return cid, None, f"cluster {cid}"
+    if scope == "A series":
+        ids, counts = _series_order(run)
+        if not ids:
+            st.info("This run has no series.")
+            return None, None, "whole run"
+        if st.session_state.get("chat_series") not in ids:
+            st.session_state.pop("chat_series", None)
+        default = st.session_state.get("series_id")
+        sid = st.selectbox(
+            "Series", ids, key="chat_series", index=ids.index(default) if default in ids else 0,
+            format_func=lambda s: f"{s} ({counts[s]} anomalous)",
+        )
+        return None, sid, f"series {sid}"
+    return None, None, "whole run"
+
+
+def _clear_chat(run_name: str) -> None:
+    st.session_state["chat_log"][run_name] = []
+
+
+def _render_answer(answer: dict | None) -> None:
+    """A stored ChatAnswer (dict) as plain text: answer, evidence bullets, next step, confidence."""
+    if answer is None:
+        st.warning(CHAT_NO_ANSWER)
+        return
+    st.markdown(md_escape(answer["answer"]))
+    if answer["evidence"]:
+        st.markdown("**Evidence**")
+        for item in answer["evidence"]:
+            st.markdown(f"- {md_escape(item)}")
+    st.markdown(f"**Suggested next step:** {md_escape(answer['suggested_next_step'])}")
+    st.caption(f"Confidence: {min(max(float(answer['confidence']), 0.0), 1.0):.0%}")
+
+
+def _render_turn(turn: dict) -> None:
+    with st.chat_message("user"):
+        st.caption(f"Scope: {md_escape(turn['scope'])}")
+        st.markdown(md_escape(turn["q"]))
+    with st.chat_message("assistant"):
+        _render_answer(turn["a"])
+
+
+def tab_chat(run: RunResult) -> None:
+    st.caption(
+        "Ask Gemma about this run when the forecasting expert is not around. Answers use only the evidence "
+        "measured for this run (clusters, features, evaluation); treat them as hypotheses to verify."
+    )
+    has_key = get_api_key() is not None
+    if not has_key:
+        st.info(CHAT_NO_KEY)
+    cluster_id, series_id, scope_label = _chat_scope(run)
+
+    log = st.session_state.setdefault("chat_log", {}).setdefault(run.name, [])
+    clicked = None
+    for i, (col, example) in enumerate(zip(st.columns(len(CHAT_EXAMPLES)), CHAT_EXAMPLES)):
+        if col.button(example, key=f"chat_ex_{i}", disabled=not has_key, width="stretch"):
+            clicked = example
+    clear_slot = st.container()
+    messages = st.container()
+    typed = st.chat_input("Ask about this run ...", key="chat_input", disabled=not has_key, max_chars=500)
+    question = (typed or clicked or "").strip()
+    with messages:
+        for turn in log:
+            _render_turn(turn)
+        if question:
+            history = [(t["q"], t["a"]["answer"]) for t in log if t["a"] is not None][-3:]
+            turn = {"q": question, "scope": scope_label, "a": None}
+            with st.chat_message("user"):
+                st.caption(f"Scope: {md_escape(scope_label)}")
+                st.markdown(md_escape(question))
+            with st.chat_message("assistant"):
+                with st.spinner("Gemma is reading the evidence ..."):
+                    answer = answer_question(
+                        chat_client(), run, question, history=history, cluster_id=cluster_id,
+                        series_id=series_id, taxonomy_text=_taxonomy_text(),
+                    )
+                turn["a"] = answer.model_dump() if answer is not None else None
+                _render_answer(turn["a"])
+            log.append(turn)
+    if log:
+        clear_slot.button("Clear conversation", key="chat_clear", on_click=_clear_chat, args=(run.name,))
+
+
 # ------------------------------------------------------------------------------ main
 
 def main() -> None:
@@ -778,8 +905,8 @@ def main() -> None:
     if run is None:
         st.info("Select or create a run in the sidebar to see the atlas.")
     else:
-        atlas, latent, cluster, series, evaluation = st.tabs(
-            ["Atlas", "Latent space", "Cluster", "Series", "Evaluation"]
+        atlas, latent, cluster, series, evaluation, doctor = st.tabs(
+            ["Atlas", "Latent space", "Cluster", "Series", "Evaluation", "Ask the Doctor"]
         )
         with atlas:
             tab_atlas(run, tpl)
@@ -791,6 +918,8 @@ def main() -> None:
             tab_series(run, tpl)
         with evaluation:
             tab_evaluation(run, tpl)
+        with doctor:
+            tab_chat(run)
 
     st.divider()
     st.caption(DISCLAIMER)

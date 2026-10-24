@@ -9,12 +9,24 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+from atlas.chat import ChatAnswer
+from atlas.prompts import CHAT_SYSTEM
 from atlas.schema import load_run
 from scripts.make_mock_run import main
 
 APP = str(Path(__file__).resolve().parent.parent / "app.py")
+
+
+@pytest.fixture(autouse=True)
+def no_api_key(monkeypatch):
+    """No test sees a real key (a .env above the repo would be found) or reaches the network, unless it installs a fake."""
+    monkeypatch.setattr("atlas.config.get_api_key", lambda: None)
+    st.cache_resource.clear()
+    yield
+    st.cache_resource.clear()  # the chat client is cached across AppTest runs
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +70,7 @@ def metrics(at: AppTest) -> dict[str, tuple[str, str]]:
 def test_every_tab_renders(mock_runs, monkeypatch):
     at = run_app(mock_runs, monkeypatch)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Atlas", "Latent space", "Cluster", "Series", "Evaluation"]
+    assert [t.label for t in at.tabs] == ["Atlas", "Latent space", "Cluster", "Series", "Evaluation", "Ask the Doctor"]
     # figure order: atlas scatter, latent map, model mix, series figure, series latent map, bars, heatmap
     assert len(figures(at)) == 7
     assert not [i.value for i in at.info if "Coming soon" in i.value]
@@ -451,3 +463,147 @@ def test_default_run_prefers_newest_non_mock_run(mock_runs, tmp_path, monkeypatc
 def test_default_run_is_mock_when_it_is_the_only_one(mock_runs, tmp_path, monkeypatch):
     at = run_app(make_runs(tmp_path, mock_runs, {"mock": 0}), monkeypatch)
     assert at.sidebar.selectbox[0].value == "mock" and at.sidebar.selectbox[0].options == ["mock (demo data)"]
+
+
+# ------------------------------------------------------------------ Ask the Doctor
+
+class FakeGemma:
+    """Stands in for atlas.gemma.GemmaClient: records every call, returns `result` (a ChatAnswer, or None = failed call)."""
+
+    calls: list[dict] = []
+    result: ChatAnswer | None = None
+
+    def __init__(self, cfg, api_key=None, raw_dir=None, **kwargs):
+        self.raw_dir = raw_dir
+
+    def generate(self, system, user, schema, image=None, tag="call"):
+        FakeGemma.calls.append({"system": system, "user": user, "schema": schema, "tag": tag, "raw_dir": self.raw_dir})
+        return FakeGemma.result
+
+
+@pytest.fixture()
+def fake_gemma(monkeypatch):
+    import atlas.gemma
+
+    FakeGemma.calls = []
+    FakeGemma.result = ChatAnswer(
+        answer="The forecast trails the actuals by about three steps.",
+        evidence=["best_lag 3.00 vs 0.00 for all anomalous windows", "lag_gain 0.57"],
+        suggested_next_step="Add leading indicators and compare MASE on these windows.",
+        confidence=0.82,
+    )
+    monkeypatch.setattr("atlas.config.get_api_key", lambda: "test-key")
+    monkeypatch.setattr(atlas.gemma, "GemmaClient", FakeGemma)
+    return FakeGemma
+
+
+def chat_text(at: AppTest) -> str:
+    """Captions and markdown of every chat message, with the md_escape backslashes dropped."""
+    return "\n".join(m.value for msg in at.chat_message for m in [*msg.caption, *msg.markdown]).replace("\\", "")
+
+
+def test_ask_the_doctor_without_key_shows_info_and_disables_input(mock_runs, monkeypatch):
+    at = run_app(mock_runs, monkeypatch)
+    assert not at.exception
+    assert any(i.value.startswith("Ask the Doctor needs a Gemma API key (GEMMA4_API_KEY in .env)") for i in at.info)
+    assert at.chat_input[0].disabled
+    assert [at.button(key=f"chat_ex_{i}").disabled for i in range(3)] == [True, True, True]
+    assert at.radio(key="chat_scope").options == ["Whole run", "A cluster", "A series"]
+    assert len(at.chat_message) == 0
+
+
+def test_ask_the_doctor_renders_without_calling_gemma(mock_runs, monkeypatch, fake_gemma):
+    at = run_app(mock_runs, monkeypatch)
+    assert not at.exception
+    assert not any("needs a Gemma API key" in i.value for i in at.info)
+    assert not at.chat_input[0].disabled
+    assert [at.button(key=f"chat_ex_{i}").label for i in range(3)] == [
+        "Why is the model failing here?", "What should we fix first?", "Which forecasting models fail most, and how?",
+    ]
+    assert fake_gemma.calls == [] and len(at.chat_message) == 0
+
+
+def test_example_question_click_renders_a_grounded_answer(mock_runs, monkeypatch, fake_gemma):
+    at = run_app(mock_runs, monkeypatch)
+    at.button(key="chat_ex_1").click().run()
+    assert not at.exception
+    (call,) = fake_gemma.calls
+    assert call["system"] == CHAT_SYSTEM and call["tag"] == "chat" and call["raw_dir"] is None
+    assert "Question: What should we fix first?" in call["user"]
+    assert "Run overview: 20 series" in call["user"] and "Forecast lags actuals by days" in call["user"]
+    assert "Focus:" not in call["user"]  # whole-run scope
+
+    text = chat_text(at)
+    assert "What should we fix first?" in text and "Scope: whole run" in text
+    assert "The forecast trails the actuals by about three steps." in text
+    assert "- best_lag 3.00 vs 0.00 for all anomalous windows" in text and "- lag_gain 0.57" in text
+    assert "**Suggested next step:** Add leading indicators and compare MASE on these windows." in text
+    assert "Confidence: 82%" in text
+    assert [m.name for m in at.chat_message] == ["user", "assistant"]
+
+
+def test_typed_question_uses_series_scope_and_remembers_history(mock_runs, monkeypatch, fake_gemma):
+    at = run_app(mock_runs, monkeypatch)
+    at.radio(key="chat_scope").set_value("A series").run()
+    sel = at.selectbox(key="chat_series")
+    assert sel.value == at.session_state["series_id"]  # defaults to the series open in the Series tab
+    sel.select("S01").run()
+    at.chat_input[0].set_value("Why is the model failing on this series?").run()
+    assert not at.exception
+    first = fake_gemma.calls[0]["user"]
+    assert "series_id: S01" in first and "Question: Why is the model failing on this series?" in first
+    assert "Earlier in this conversation" not in first
+
+    at.chat_input[0].set_value("And the next step?").run()
+    second = fake_gemma.calls[1]["user"]
+    assert "Q: Why is the model failing on this series?" in second
+    assert "A: The forecast trails the actuals by about three steps." in second
+    assert [m.name for m in at.chat_message] == ["user", "assistant", "user", "assistant"]
+    assert "Scope: series S01" in chat_text(at)
+
+
+def test_cluster_scope_puts_the_cluster_report_in_the_context(mock_runs, monkeypatch, fake_gemma):
+    at = run_app(mock_runs, monkeypatch, cluster_id=1)
+    at.radio(key="chat_scope").set_value("A cluster").run()
+    sel = at.selectbox(key="chat_cluster")
+    assert sel.value == 1 and sel.options[1] == "1: Stuck at the old level"  # follows the Cluster tab
+    at.button(key="chat_ex_0").click().run()
+    user = fake_gemma.calls[0]["user"]
+    assert "Focus: cluster 1" in user and "series_id" not in user
+    assert "Scope: cluster 1" in chat_text(at)
+
+
+def test_failed_gemma_call_shows_a_warning_and_is_not_kept_as_history(mock_runs, monkeypatch, fake_gemma):
+    fake_gemma.result = None
+    at = run_app(mock_runs, monkeypatch)
+    at.button(key="chat_ex_0").click().run()
+    assert not at.exception
+    assert any("Gemma didn't answer (API busy) — try again in a moment." in w.value for w in at.warning)
+
+    fake_gemma.result = ChatAnswer(answer="OK now.", evidence=["x 1.00"], suggested_next_step="Go.", confidence=0.5)
+    at.chat_input[0].set_value("Try again").run()
+    assert "Earlier in this conversation" not in fake_gemma.calls[1]["user"]  # the failed turn has no answer to quote
+    assert "OK now." in chat_text(at)
+
+
+def test_clear_conversation_and_per_run_history(mock_runs, monkeypatch, fake_gemma):
+    at = run_app(mock_runs, monkeypatch)
+    assert not [b for b in at.button if b.key == "chat_clear"]
+    at.button(key="chat_ex_2").click().run()
+    assert len(at.chat_message) == 2 and at.session_state["chat_log"]["mock"][0]["q"].startswith("Which forecasting models")
+    at.run()  # the conversation survives a plain rerun
+    assert len(at.chat_message) == 2
+    at.button(key="chat_clear").click().run()
+    assert not at.exception and len(at.chat_message) == 0
+
+
+def test_answer_text_is_escaped_as_plain_text(mock_runs, monkeypatch, fake_gemma):
+    fake_gemma.result = ChatAnswer(
+        answer="# Big <b>heading</b> $x$", evidence=["[link](http://x.test)"], suggested_next_step="`rm -rf`", confidence=1.7
+    )
+    at = run_app(mock_runs, monkeypatch)
+    at.button(key="chat_ex_0").click().run()
+    assert not at.exception
+    raw = "\n".join(m.value for msg in at.chat_message for m in msg.markdown)
+    assert "\\# Big \\<b\\>heading\\</b\\> \\$x\\$" in raw and "\\[link\\]\\(http" in raw
+    assert "Confidence: 100%" in "\n".join(c.value for msg in at.chat_message for c in msg.caption)  # clamped
