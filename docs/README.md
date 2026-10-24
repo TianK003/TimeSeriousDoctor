@@ -46,3 +46,19 @@ It contains **no experimental results**. Section 3.4 has two template tables (`t
 | Naming | `naming_accuracy` |
 
 Two statements in the paper describe optional parts of the system and should be re-checked against the final code before submission: the MOMENT embedder (`moment` / `both`) and the expert feedback loop (`expert_feedback.json`, few-shot examples).
+
+## Figures
+
+Explanatory PNGs for the pitch deck and the project README, generated from a real run (200 dpi, 16:9 except the gallery). Regenerate with:
+
+```
+python scripts/make_figures.py --run runs/synth_features_v1 [--out docs/figures] [--only 1,3] [--tsne-cache tsne.npy]
+```
+
+Residuals and the t-SNE map are recomputed from the run folder. A figure whose inputs are missing in the run (no `true_label`, no `eval.json` comparison, no cluster panels) is skipped with a message.
+
+- `figures/01_transformation.png`: one real series from forecast to diagnosis (forecast, scaled errors and gated windows, feature fingerprint, place on the map, Gemma's report).
+- `figures/02_latent_space.png`: t-SNE of all windows, injected failure types next to the clusters the pipeline found.
+- `figures/03_pipeline_vs_gemma_alone.png`: accuracy, macro-F1, per-class accuracy and Gemma calls, pipeline against Gemma alone (from `eval.json`).
+- `figures/04_llm_plus_expert.png`: diagram of what code measures, what Gemma explains and where the expert's taxonomy and review enter.
+- `figures/05_cluster_gallery.png`: the cluster panels Gemma sees for the four largest clusters, with Gemma's name and size.
