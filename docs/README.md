@@ -52,7 +52,7 @@ Two statements in the paper describe optional parts of the system and should be 
 Explanatory PNGs for the pitch deck and the project README, generated from a real run (200 dpi, 16:9 except the gallery). Regenerate with:
 
 ```
-python scripts/make_figures.py --run runs/synth_features_v1 [--out docs/figures] [--only 1,3] [--tsne-cache tsne.npy]
+python scripts/make_figures.py --run runs/synth_features [--out docs/figures] [--only 1,3] [--tsne-cache tsne.npy]
 ```
 
 Residuals and the t-SNE map are recomputed from the run folder. A figure whose inputs are missing in the run (no `true_label`, no `eval.json` comparison, no cluster panels) is skipped with a message.

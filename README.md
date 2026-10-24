@@ -87,7 +87,7 @@ Setup: 400 synthetic series, each with one injected and labeled failure type (or
 sample of 40 series (8 per type) and score both methods on exactly those series. Both use the same Gemma 4 model
 (`gemma-4-26b-a4b-it`) and the same expert taxonomy. **Gemma alone** gets one full-series chart per series and is
 asked what is wrong. **TimeSeriousDoctor** runs Gemma inside the pipeline: residuals → anomaly gate → failure
-features → clusters → one Gemma call per cluster. Output of `scripts/run_eval.py`; no Gemma call failed on either side.
+features → clusters → one Gemma call per cluster. Output of `scripts/run_eval.py`; none of the cluster or baseline calls failed.
 
 | method | accuracy | macro-F1 | Gemma calls (40-series sample) | Gemma calls (all 400 series) |
 |---|---|---|---|---|
@@ -108,7 +108,7 @@ Pipeline quality on the same run:
 - Gemma named 100% of the clusters correctly.
 - Series-level accuracy across all 400 series is 82%.
 
-Gemma alone cannot see lag or short spikes on a full chart and labels most series as over-smoothing. The pipeline
+Gemma alone cannot see lag or short spikes on a full chart and labels about half of all series (19 of 40) as over-smoothing. The pipeline
 measures them explicitly. It also localizes *where* each failure happens, groups series that share a failure, and
 needs 44× fewer Gemma calls.
 
