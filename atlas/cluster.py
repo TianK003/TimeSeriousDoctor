@@ -6,11 +6,13 @@ Owner: A. Task: P0.9, P1.8. Spec: SPEC.md §7.7.
 from __future__ import annotations
 
 import math
+import time
 
 import numpy as np
 import pandas as pd
 from sklearn.cluster import HDBSCAN, KMeans
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import RobustScaler
 
@@ -170,3 +172,43 @@ def project_2d(X: np.ndarray) -> np.ndarray:
     if n < 3 or X.ndim < 2 or X.shape[1] < 2:
         return np.zeros((n, 2), dtype=np.float32)
     return PCA(n_components=2, random_state=0).fit_transform(X).astype(np.float32)
+
+
+def project_tsne(
+    X: np.ndarray, max_points: int = 4000, seed: int = 0, keep: np.ndarray | None = None
+) -> np.ndarray:
+    """t-SNE projection [n, 2] float32 for the latent-space map; NaN rows = points not projected.
+
+    If n > max_points, every row where `keep` is True (e.g. gated windows) is projected plus a seeded
+    random sample of the remaining rows, up to max_points in total. n < 5 -> zeros.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    n = len(X)
+    if n < 5:
+        return np.zeros((n, 2), dtype=np.float32)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
+    chosen = np.arange(n)
+    if n > max_points:
+        keep_mask = np.zeros(n, dtype=bool) if keep is None else np.asarray(keep, dtype=bool)
+        kept = np.flatnonzero(keep_mask)
+        rest = np.flatnonzero(~keep_mask)
+        n_extra = min(len(rest), max(0, max_points - len(kept)))
+        extra = np.random.default_rng(seed).choice(rest, size=n_extra, replace=False)
+        chosen = np.sort(np.concatenate([kept, extra]))
+
+    m = len(chosen)
+    out = np.full((n, 2), np.nan, dtype=np.float32)
+    if m < 5:
+        out[chosen] = 0.0
+        return out
+    t0 = time.perf_counter()
+    emb = TSNE(
+        n_components=2,
+        perplexity=min(30.0, (m - 1) / 3),
+        init="pca" if X.shape[1] >= 2 else "random",
+        random_state=seed,
+    ).fit_transform(X[chosen])
+    out[chosen] = emb.astype(np.float32)
+    print(f"project_tsne: {m}/{n} points, {time.perf_counter() - t0:.1f}s")
+    return out

@@ -20,7 +20,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-from atlas.schema import CLUSTER_NOISE, ClusterInfo, RunResult
+from atlas.schema import CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, RunResult
 
 # d3 category10 without its grey, which is reserved for noise / unclustered windows.
 CLUSTER_COLORS: list[str] = [
@@ -192,7 +192,7 @@ def baseline_series_png(series: pd.DataFrame, path: Path | None = None, title: s
 
 # ---------------------------------------------------------------- plotly figures for the UI
 
-def series_figure(series_id: str, run: RunResult) -> go.Figure:
+def series_figure(series_id: str, run: RunResult, template: str = "plotly_white") -> go.Figure:
     """Full series actual/predicted, forecast region grey, gated windows shaded by cluster with hover."""
     s = run.data[run.data["series_id"] == series_id].sort_values("ts")
     fig = go.Figure()
@@ -235,12 +235,12 @@ def series_figure(series_id: str, run: RunResult) -> go.Figure:
     fig.update_layout(
         title=f"Series {series_id}", xaxis_title="time", yaxis_title="value",
         yaxis_range=[lo, hi], margin=dict(l=50, r=20, t=50, b=40), hovermode="closest",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0), template=template,
     )
     return fig
 
 
-def atlas_scatter(windows: pd.DataFrame) -> go.Figure:
+def atlas_scatter(windows: pd.DataFrame, template: str = "plotly_white") -> go.Figure:
     """2-D map of gated windows colored by cluster (cluster id cast to str for discrete colors)."""
     g = windows[windows["gated"].astype(bool) & windows["x2d"].notna() & windows["y2d"].notna()]
     fig = go.Figure()
@@ -254,6 +254,156 @@ def atlas_scatter(windows: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         title="Failure atlas — gated windows", xaxis_title="", yaxis_title="",
         xaxis=dict(showticklabels=False), yaxis=dict(showticklabels=False),
-        legend_title_text="cluster", margin=dict(l=20, r=20, t=50, b=20),
+        legend_title_text="cluster", margin=dict(l=20, r=20, t=50, b=20), template=template,
+    )
+    return fig
+
+
+# ---------------------------------------------------------------- latent space (t-SNE) figures
+
+TRUE_LABEL_COLORS = {
+    "delayed_response": "#1f77b4", "missed_peak": "#ff7f0e", "unadapted_shift": "#2ca02c",
+    "over_smoothing": "#9467bd", "healthy": "#8fbf8f",
+}
+NORMAL_COLOR = "#BDBDBD"
+NORMAL_NAME = "normal (not anomalous)"
+MAX_SERIES_LEGEND = 12
+
+
+def cluster_name_map(clusters: list[ClusterInfo]) -> dict[int, str]:
+    """cluster_id -> Gemma's short name, for clusters that have a report."""
+    return {c.cluster_id: c.report.name for c in clusters if c.report is not None}
+
+
+def _cluster_label(cid: int, names: dict[int, str] | None) -> str:
+    base = "unclustered" if cid < 0 else f"cluster {cid}"
+    name = (names or {}).get(cid)
+    return f"{cid}: {name}" if name and cid >= 0 else base
+
+
+def _hover(df: pd.DataFrame, names: dict[int, str] | None, err_col: str) -> list[str]:
+    has_label = "true_label" in df.columns
+    out = []
+    for row in df.to_dict("records"):
+        cid = int(row["cluster"])
+        cname = (names or {}).get(cid)
+        if cid == CLUSTER_NOISE:
+            cl = "unclustered"
+        elif cid < 0:
+            cl = "normal (not gated)"
+        else:
+            cl = f"{cid}" + (f" ({cname})" if cname else "")
+        lines = [f"<b>{row['window_id']}</b>", f"series: {row['series_id']}", f"cluster: {cl}",
+                 f"abs_err: {float(row[err_col]):.2f}"]
+        if has_label:
+            lines.append(f"true label: {row['true_label']}")
+        out.append("<br>".join(lines))
+    return out
+
+
+def latent_figure(
+    windows: pd.DataFrame,
+    coords: np.ndarray,
+    color_by: str = "cluster",
+    cluster_names: dict[int, str] | None = None,
+    highlight_series: str | None = None,
+    template: str = "plotly_white",
+) -> go.Figure:
+    """t-SNE scatter of windows (row-aligned with `coords` [n, 2]; NaN rows are skipped).
+
+    Not-gated windows are small light-grey dots, gated ones are colored by `color_by` in
+    {"cluster", "true_label", "series_id"}. `customdata` of every point is its window_id.
+    """
+    coords = np.asarray(coords, dtype=np.float64)
+    if len(coords) != len(windows):
+        raise ValueError(f"coords has {len(coords)} rows but windows has {len(windows)}")
+    df = windows.reset_index(drop=True).assign(_x=coords[:, 0], _y=coords[:, 1])
+    df = df[np.isfinite(df["_x"]) & np.isfinite(df["_y"])].reset_index(drop=True)
+    err_col = "abs_err" if "abs_err" in df.columns else "score_abs"
+    df = df.assign(_hover=_hover(df, cluster_names, err_col))
+    if color_by == "true_label" and "true_label" not in df.columns:
+        color_by = "cluster"
+    dark = template.endswith("dark")
+    gated = df["gated"].astype(bool)
+
+    def scatter(sub: pd.DataFrame, name: str, color, size: int, opacity: float, **kw) -> go.Scatter:
+        return go.Scatter(
+            x=sub["_x"], y=sub["_y"], mode="markers", name=name, text=sub["_hover"], hoverinfo="text",
+            customdata=sub["window_id"].to_numpy(), marker=dict(color=color, size=size, opacity=opacity),
+            **kw,
+        )
+
+    fig = go.Figure()
+    normal = df[~gated]
+    if len(normal):
+        fig.add_trace(scatter(normal, NORMAL_NAME, NORMAL_COLOR, 5, 0.45))
+
+    anomalous = df[gated]
+    if color_by == "series_id":
+        ids = {s: i for i, s in enumerate(sorted(anomalous["series_id"].astype(str).unique()))}
+        colors = [CLUSTER_COLORS[ids[str(s)] % len(CLUSTER_COLORS)] for s in anomalous["series_id"]]
+        if len(anomalous):
+            fig.add_trace(scatter(anomalous, "anomalous (colored by series)", colors, 8, 0.85))
+    else:
+        for key in sorted(anomalous[color_by].astype(int if color_by == "cluster" else str).unique()):
+            sub = anomalous[anomalous[color_by].astype(int if color_by == "cluster" else str) == key]
+            if color_by == "cluster":
+                name, color = _cluster_label(int(key), cluster_names), _cluster_color(int(key))
+            else:
+                name = str(key)
+                color = TRUE_LABEL_COLORS.get(name, NOISE_COLOR)
+            fig.add_trace(scatter(sub, name, color, 8, 0.85))
+
+    if highlight_series is not None:
+        sel = df[df["series_id"].astype(str) == str(highlight_series)]
+        if len(sel):
+            colors = [_cluster_color(int(c)) if g else NORMAL_COLOR for c, g in zip(sel["cluster"], sel["gated"])]
+            trace = scatter(sel, "selected series", colors, 14, 1.0)
+            trace.marker.line = dict(color="white" if dark else "black", width=2)
+            fig.add_trace(trace)
+
+    fig.update_layout(
+        title="Latent space (t-SNE) — each dot is one 28-step window", height=600, template=template,
+        xaxis=dict(title="t-SNE 1", showticklabels=False, zeroline=False),
+        yaxis=dict(title="t-SNE 2", showticklabels=False, zeroline=False),
+        legend_title_text={"cluster": "cluster", "true_label": "true label"}.get(color_by, ""),
+        margin=dict(l=20, r=20, t=50, b=40), hovermode="closest",
+    )
+    return fig
+
+
+def window_figure(
+    window_id: str, run: RunResult, context: int = 14, template: str = "plotly_white"
+) -> go.Figure:
+    """One window: actual vs predicted in raw units with `context` rows before, window region shaded."""
+    row = run.windows[run.windows["window_id"] == window_id].iloc[0]
+    sid = str(row["series_id"])
+    s = run.data[run.data["series_id"] == sid].sort_values("ts").reset_index(drop=True)
+    first_fc = int(np.flatnonzero(s["is_forecast"].to_numpy(dtype=bool))[0])
+    pos0, pos1 = first_fc + int(row["start_idx"]), first_fc + int(row["end_idx"])
+    seg = s.iloc[max(0, pos0 - context):pos1]
+    t0, t1 = s["ts"].iloc[pos0], s["ts"].iloc[min(pos1, len(s)) - 1]
+
+    cid = int(row["cluster"]) if "cluster" in row.index else CLUSTER_NOT_GATED
+    name = cluster_name_map(run.clusters).get(cid)
+    if cid == CLUSTER_NOISE:
+        where = "unclustered"
+    elif cid < 0:
+        where = "normal (not gated)"
+    else:
+        where = f"cluster {cid}" + (f" ({name})" if name else "")
+
+    fig = go.Figure()
+    fig.add_shape(type="rect", xref="x", yref="paper", x0=t0, x1=t1, y0=0, y1=1,
+                  fillcolor=_rgba(WINDOW_COLOR, 0.35), line_width=0, layer="below",
+                  label=dict(text="window", textposition="top left", font=dict(size=10, color="#888888")))
+    fig.add_trace(go.Scatter(x=seg["ts"], y=seg["actual"], mode="lines", name="actual",
+                             line=dict(color="white" if template.endswith("dark") else ACTUAL_COLOR, width=1.8)))
+    fig.add_trace(go.Scatter(x=seg["ts"], y=seg["predicted"], mode="lines", name="predicted",
+                             line=dict(color=PRED_COLOR, width=1.8)))
+    fig.update_layout(
+        title=f"{window_id} — {where}", xaxis_title="time", yaxis_title="value", template=template,
+        margin=dict(l=50, r=20, t=50, b=40), hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
     return fig
