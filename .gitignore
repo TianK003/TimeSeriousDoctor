@@ -1,0 +1,21 @@
+# secrets
+.env
+
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# generated artifacts (see SPEC.md §4)
+data/
+runs/
+cache/
+
+# tooling scratch
+.superpowers/
+.worktrees/
+.claude/worktrees/
+.DS_Store
