@@ -40,7 +40,8 @@ DARK_CSS = f"""
 [data-baseweb="popover"], [data-baseweb="popover"] ul, [data-baseweb="menu"],
 [data-baseweb="popover"] li {{ background-color: {DARK_PANEL}; color: {DARK_TEXT}; }}
 .stApp button[kind], .stApp [data-testid^="stBaseButton"] {{ background-color: {DARK_PANEL}; color: {DARK_TEXT}; border-color: {DARK_BORDER}; }}
-.stApp [data-testid="stBaseButton-primary"] {{ background-color: #2E6FBA; color: #FFFFFF; border-color: #2E6FBA; }}
+.stApp [data-testid="stBaseButton-primary"], .stApp button[kind="primary"] {{ background-color: #2E6FBA; color: #FFFFFF; border-color: #2E6FBA; }}
+.stApp [data-testid^="stPageLink"] * {{ color: {DARK_TEXT}; }}
 .stApp [data-testid="stAlert"] [data-baseweb="notification"] {{ background-color: {DARK_PANEL}; }}
 .stApp [data-testid="stAlert"] * {{ color: {DARK_TEXT}; }}
 """

@@ -1,10 +1,11 @@
 """Streamlit entry point.
 
 Atlas, Latent space, Cluster, Series, Evaluation and Ask the Doctor tabs over a precomputed run folder
-(SPEC.md §7.12). Runs are produced by the CLI (`python scripts/run_atlas.py`, or
-`python scripts/make_mock_run.py` for a fake one); the app only reads them, except the expert review in
-the Cluster tab, which writes `expert_feedback.json` into the run folder. Ask the Doctor is the only
-live Gemma call in the app (needs an API key). Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
+(SPEC.md §7.12), plus an FAQ page (`faq.py`, linked at the bottom of the sidebar) with the paper and the
+figures. Runs are produced by the CLI (`python scripts/run_atlas.py`, or `python scripts/make_mock_run.py`
+for a fake one); the app only reads them, except the expert review in the Cluster tab, which writes
+`expert_feedback.json` into the run folder. Ask the Doctor is the only live Gemma call in the app (needs an
+API key). Directory with runs: env var ATLAS_RUNS_DIR (default `runs`).
 """
 
 from __future__ import annotations
@@ -25,7 +26,9 @@ from atlas.cluster import embed_features, project_tsne
 from atlas.config import GemmaConfig, get_api_key
 from atlas.features import FEATURES
 from atlas.plots import atlas_scatter, cluster_name_map, latent_figure, series_figure, window_figure
-from atlas.schema import CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, RunResult, list_runs, load_run
+from atlas.schema import (
+    CLUSTER_NOISE, CLUSTER_NOT_GATED, ClusterInfo, GemmaClusterReport, RunResult, list_runs, load_run,
+)
 from atlas.taxonomy import load_taxonomy
 from atlas.ui_theme import apply_theme, plotly_template, theme_toggle
 
@@ -62,6 +65,16 @@ CHAT_EXAMPLES = [
 ]
 CHAT_NO_KEY = "Ask the Doctor needs a Gemma API key (GEMMA4_API_KEY in .env). The rest of the atlas works without it."
 CHAT_NO_ANSWER = "Gemma didn't answer (API busy) — try again in a moment."
+
+LAYOUT_CSS = """
+.st-key-cluster_report p, .st-key-cluster_report ul, .st-key-cluster_report ol { margin-bottom: 0.35rem; }
+.st-key-cluster_report li { margin-top: 0; margin-bottom: 0; }
+[data-testid="stSidebarContent"] { display: flex; flex-direction: column; }
+[data-testid="stSidebarUserContent"] { flex-grow: 1; display: flex; flex-direction: column; padding-bottom: 1rem; }
+[data-testid="stSidebarUserContent"] > div { flex-grow: 1; display: flex; flex-direction: column; }
+[data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] { flex-grow: 1; }
+[data-testid="stSidebarUserContent"] [data-testid="stLayoutWrapper"]:has(> .st-key-sidebar_footer) { margin-top: auto; }
+"""
 
 _MD_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|<>~$:&])")
 
@@ -244,6 +257,22 @@ def tab_atlas(run: RunResult, tpl: str) -> None:
 
 # -------------------------------------------------------------------------- Cluster
 
+def _one_line(text: object) -> str:
+    return md_escape(" ".join(str(text).split()))
+
+
+def report_markdown(r: GemmaClusterReport) -> str:
+    """Gemma's diagnosis as one markdown block; one st.markdown per item would add a full element gap each."""
+    lines = [f"**Confidence:** {r.confidence:.0%}", "", "**Evidence**"]
+    lines += [f"- {_one_line(item)}" for item in r.evidence]
+    lines += ["", "**Likely causes**"]
+    lines += [f"{k}. **{_one_line(c.cause)}** — {_one_line(c.why)}" for k, c in enumerate(r.likely_causes, start=1)]
+    lines += ["", "**Suggested fixes**"]
+    lines += [f"- {_one_line(fix)}" for fix in r.suggested_fixes]
+    lines += ["", f"**Metric to monitor:** {_one_line(r.metric_to_monitor)}"]
+    return "\n".join(lines)
+
+
 def _feature_table(c: ClusterInfo) -> pd.DataFrame:
     df = pd.DataFrame(
         {
@@ -374,17 +403,8 @@ def tab_cluster(run: RunResult, tpl: str) -> None:
             st.warning(NO_REPORT)
     else:
         st.markdown(md_escape(r.summary))
-        st.markdown(f"**Confidence:** {r.confidence:.0%}")
-        st.markdown("**Evidence**")
-        for item in r.evidence:
-            st.markdown(f"- {md_escape(item)}")
-        st.markdown("**Likely causes**")
-        for k, cause in enumerate(r.likely_causes, start=1):
-            st.markdown(f"{k}. **{md_escape(cause.cause)}** — {md_escape(cause.why)}")
-        st.markdown("**Suggested fixes**")
-        for fix in r.suggested_fixes:
-            st.markdown(f"- {md_escape(fix)}")
-        st.markdown(f"**Metric to monitor:** {md_escape(r.metric_to_monitor)}")
+        with st.container(key="cluster_report"):
+            st.markdown(report_markdown(r))
 
     expert_review(run, c, expert)
 
@@ -756,6 +776,12 @@ def _confusion_figure(run: RunResult, confusion: dict, tpl: str) -> go.Figure:
 
 def tab_evaluation(run: RunResult, tpl: str) -> None:
     ev = run.eval
+    if not ev and "true_label" not in run.windows.columns:
+        st.info(
+            "This run has no ground-truth labels (real data), so there is nothing to score. "
+            "Select the synthetic run `synth_features` to see the evaluation."
+        )
+        return
     if not ev:
         st.info("No eval.json for this run — run scripts/run_eval.py")
         return
@@ -896,15 +922,10 @@ def tab_chat(run: RunResult) -> None:
 
 # ------------------------------------------------------------------------------ main
 
-def main() -> None:
-    st.set_page_config(page_title="TimeSeriousDoctor", layout="wide")
+def atlas_page() -> None:
     st.title("TimeSeriousDoctor")
     st.caption("Failure atlas for forecasting models: where, how and why forecasts go wrong.")
-
-    st.sidebar.title("TimeSeriousDoctor")
-    dark = theme_toggle()
-    apply_theme(dark)
-    tpl = plotly_template(dark)
+    tpl = plotly_template(bool(st.session_state.get("dark_mode")))
 
     run = sidebar(list_runs(runs_dir()))
     if run is None:
@@ -925,6 +946,24 @@ def main() -> None:
             tab_evaluation(run, tpl)
         with doctor:
             tab_chat(run)
+
+
+def main() -> None:
+    st.set_page_config(page_title="TimeSeriousDoctor", layout="wide")
+    st.sidebar.title("TimeSeriousDoctor")
+    apply_theme(theme_toggle())
+    st.html(f"<style>{LAYOUT_CSS}</style>")
+
+    atlas = st.Page(atlas_page, title="Atlas", icon=":material/insights:", default=True)
+    faq = st.Page("faq.py", title="FAQ", icon=":material/help:", url_path="faq")
+    page = st.navigation([atlas, faq], position="hidden")
+    page.run()
+
+    with st.sidebar.container(key="sidebar_footer"):  # pushed to the bottom of the sidebar by LAYOUT_CSS
+        if page.url_path == faq.url_path:
+            st.page_link(atlas, label="Back to the atlas", icon=":material/arrow_back:")
+        else:
+            st.page_link(faq, label="FAQ: how it works + paper", icon=":material/help:")
 
     st.divider()
     st.caption(DISCLAIMER)
