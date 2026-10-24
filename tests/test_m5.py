@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -53,6 +54,13 @@ def test_m5_pipeline_to_contract(tmp_path: Path) -> None:
 
     sales, calendar = load_m5_raw(raw)
     assert {"item_id", "dept_id", "d_1", f"d_{N_DAYS}"} <= set(sales.columns)
+
+    no_key = raw / "no_key"
+    no_key.mkdir()
+    shutil.copy(raw / "sales_train_evaluation.csv", no_key / "sales_train_evaluation.csv")
+    pd.read_csv(raw / "calendar.csv").drop(columns="d").to_csv(no_key / "calendar.csv", index=False)
+    _, cal_no_key = load_m5_raw(no_key)  # a calendar without the `d` key (Nixtla mirror) gets d_1..d_N added
+    assert cal_no_key["d"].iloc[[0, -1]].tolist() == ["d_1", f"d_{N_DAYS}"]
 
     df, item_dept = aggregate_item_total(sales, calendar, n_items=3, history_days=N_DAYS)
     assert set(df.columns) == {"unique_id", "ds", "y"}

@@ -5,7 +5,7 @@ Reads the Kaggle M5 files, aggregates items over stores, runs statsforecast cros
 
     python scripts/prepare_m5.py --raw data/m5_raw --n-items 1000 --history-days 730 --out data/m5
 
-Runtime guard: a 50-item probe is timed first; if the extrapolated forecasting time exceeds
+Runtime guard: 50- and 100-item probes are timed first; if the extrapolated forecasting time exceeds
 `--max-minutes` (default 5), `--n-items` drops to 300 (`--no-guard` disables the check).
 """
 
@@ -39,7 +39,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=Path("data/m5"))
     ap.add_argument("--n-jobs", type=int, default=-1)
     ap.add_argument("--max-minutes", type=float, default=5.0)
-    ap.add_argument("--no-guard", action="store_true", help="skip the 50-item timing probe")
+    ap.add_argument("--no-guard", action="store_true", help="skip the timing probes")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -54,13 +54,20 @@ def main() -> None:
         f"{df['ds'].min().date()} .. {df['ds'].max().date()} ({time.time() - t1:.1f}s)"
     )
 
-    if not args.no_guard and n_items > FALLBACK_ITEMS:
-        probe = df[df["unique_id"].isin(df["unique_id"].unique()[:PROBE_ITEMS])]
-        tp = time.time()
-        make_forecasts(probe, n_jobs=args.n_jobs)
-        probe_s = time.time() - tp
-        est_min = probe_s / PROBE_ITEMS * n_items / 60
-        print(f"guard: {PROBE_ITEMS}-item probe took {probe_s:.1f}s -> ~{est_min:.1f} min for {n_items} items")
+    if not args.no_guard and n_items > 2 * PROBE_ITEMS:
+        # two probes (50 and 100 items) so the fixed start-up cost (workers, numba) is not extrapolated
+        ids = df["unique_id"].unique()
+        probe_s = []
+        for k in (PROBE_ITEMS, 2 * PROBE_ITEMS):
+            tp = time.time()
+            make_forecasts(df[df["unique_id"].isin(ids[:k])], n_jobs=args.n_jobs)
+            probe_s.append(time.time() - tp)
+        per_item = max(probe_s[1] - probe_s[0], 0.0) / PROBE_ITEMS
+        est_min = (probe_s[1] + per_item * (n_items - 2 * PROBE_ITEMS)) / 60
+        print(
+            f"guard: probes {probe_s[0]:.1f}s ({PROBE_ITEMS} items) and {probe_s[1]:.1f}s ({2 * PROBE_ITEMS} items) "
+            f"-> ~{est_min:.1f} min for {n_items} items"
+        )
         if est_min > args.max_minutes:
             n_items = FALLBACK_ITEMS
             print(f"guard: over {args.max_minutes:g} min, falling back to --n-items {n_items}")

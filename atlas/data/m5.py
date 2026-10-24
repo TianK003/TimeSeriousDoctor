@@ -35,6 +35,8 @@ def load_m5_raw(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     sales = pd.read_csv(sales_path, dtype=dtypes)
     calendar = pd.read_csv(calendar_path)
     calendar["date"] = pd.to_datetime(calendar["date"])
+    if "d" not in calendar.columns:  # Nixtla's mirror of the data drops the `d` key; rows are d_1..d_N in order
+        calendar["d"] = [f"d_{i + 1}" for i in range(len(calendar))]
     return sales, calendar
 
 
