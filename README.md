@@ -18,9 +18,6 @@ TimeSeriousDoctor takes actuals and predictions for many series and:
 
 Everything is shown in a Streamlit "atlas". **Code measures, Gemma explains**: every number comes from code, and Gemma only interprets the numbers and charts it is given.
 
-> [!NOTE]
-> SPEC.md calls this project "Residual Atlas", and the Python package is named `atlas`.
-
 ## How to run it
 
 Windows:
